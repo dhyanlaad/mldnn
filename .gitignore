@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pdf
+*.aux
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+*.synctex.gz
+*.fls
+*.fdb_latexmk
+.DS_Store
+
+# Cache and Binary outputs
+*.npy
+
+# Keep export directories but ignore their contents
+solver/export/figures/*
+!solver/export/figures/.gitkeep
+solver/export/results/*
+!solver/export/results/.gitkeep
