@@ -103,7 +103,7 @@ def plot_expectation(t, true_mean, mean_mldnn, mean_fem, mldnn_label, fem_label,
     ax.plot(t, mean_mldnn, 'r--', label=mldnn_label)
     ax.legend(fontsize=9)
     ax.set_xlabel('$t$')
-    ax.set_ylabel('Expectation $\\mathbb{E}[X(t)]$')
+    ax.set_ylabel('Expectation')
     ax.set_title(title)
     plt.tight_layout()
     fig.savefig(save_path)

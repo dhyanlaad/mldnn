@@ -23,12 +23,12 @@ def run():
         sols.append(solver.evaluate(t_eval))
     mldnn_mean = np.mean(sols, axis=0)
         
-    n = 32
+    n = 4096
     dB_fem = brownian_increments(n * N_paths).reshape(N_paths, n)
     fem_sols = [em_caputo(alpha, lambda t,y: -y**3, lambda t,y: 1.0, y0, dB_fem[i]) for i in range(N_paths)]
     fem_mean = np.interp(t_eval, np.linspace(0, 1, n+1), np.mean(fem_sols, axis=0))
     
-    plot_expectation(t_eval, y_true, mldnn_mean, fem_mean, f"MLDNN (DNN, m={m})", f"fEM (N={n})", "Ground Truth", "Exp 3: Nonlinear Drift", "exp3_nonlinear_drift.pdf")
+    plot_expectation(t_eval, y_true, mldnn_mean, fem_mean, f"MLDNN ($\\hat{{m}}$ = {m})", f"fEM (N={n})", "Ground truth", "Example 4.3", "exp3_nonlinear_drift.pdf")
     print(f"Saved exp3!\n")
 
 if __name__ == '__main__': np.random.seed(42); torch.manual_seed(42); run()

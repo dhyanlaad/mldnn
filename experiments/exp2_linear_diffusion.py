@@ -26,7 +26,7 @@ def run():
     fem_sols = [em_caputo(alpha, lambda t,y: -y, lambda t,y: 1.0, y0, dB_fem[i]) for i in range(N_paths)]
     fem_mean = np.interp(t_eval, np.linspace(0, 1, n+1), np.mean(fem_sols, axis=0))
     
-    plot_expectation(t_eval, y_true, best_mldnn_mean, fem_mean, f"MLDNN (ELM, m={best_m})", f"fEM (N={n})", "Exact Analytic", "Exp 2: Linear Stochastic", "exp2_linear_diffusion.pdf")
+    plot_expectation(t_eval, y_true, best_mldnn_mean, fem_mean, f"MLELM ($\\hat{{m}}$ = {best_m})", f"fEM (N={n})", "Ground truth", "Example 4.2", "exp2_linear_diffusion.pdf")
     print(f"Saved exp2! Best m={best_m}\n")
 
 if __name__ == '__main__': np.random.seed(42); run()

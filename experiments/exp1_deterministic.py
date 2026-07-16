@@ -27,7 +27,7 @@ def run():
     fem_sol = em_caputo(alpha, bfun_np, sfun_np, y0, np.zeros(n))
     fem_mean = np.interp(t_eval, np.linspace(0, 1, n+1), fem_sol)
     
-    plot_expectation(t_eval, y_true, best_mldnn_mean, fem_mean, f"MLDNN (ELM, m={best_m})", f"fEM (N={n})", "Exact Analytic", "Exp 1: Deterministic Physics", "exp1_deterministic.pdf")
+    plot_expectation(t_eval, y_true, best_mldnn_mean, fem_mean, f"MLELM ($\\hat{{m}}$ = {best_m})", f"fEM (N={n})", "Ground truth", "Example 4.1", "exp1_deterministic.pdf")
     print(f"Saved exp1! Best m={best_m}\n")
 
 if __name__ == '__main__': run()
