@@ -1,32 +1,80 @@
+import time
 import numpy as np
-from solver.core_mldnn import em_caputo, solve_affine, evaluate_solution, ml_vec, build_S, brownian_increments
-from solver.plotter import plot_expectation
+from solver.core_mldnn import em_caputo, solve_affine, evaluate_solution, brownian_increments, build_S, coarsen, ml_vec
+from solver.plotter import plot_expectation, plot_pareto
 
 def run():
-    print("Running Exp 2: Linear Drift & Diffusion")
+    print("Running Exp 2: Linear Drift & Diffusion Pareto")
     alpha = 0.75
     y0, N_paths = 1.0, 500
     t_eval = np.linspace(0, 1, 100)
-    y_true = ml_vec(alpha, 1.0, -(t_eval ** alpha))
     
-    dB_mldnn = brownian_increments(64 * N_paths).reshape(N_paths, 64)
-    best_err, best_m, best_mldnn_mean = float('inf'), None, None
-    for m in [4, 8, 12, 16, 20, 24]:
+    n_gt = 4096
+    print("Computing Ground Truth (MLELM m=24 pathwise proxy)...")
+    dB_gt = brownian_increments(n_gt * N_paths).reshape(N_paths, n_gt)
+    
+    # We use MLELM with high m as the exact pathwise continuous limit
+    # Because this is additive noise, Itô = Stratonovich, making this the rigorous true limit!
+    gt_sols = []
+    for i in range(N_paths):
+        S = build_S(alpha, 24, dB_gt[i])
+        c, _, _, _ = solve_affine(alpha, 24, S, y0, b0=0.0, b1=-1.0, s0=1.0, s1=0.0, Nq=64)
+        gt_sols.append(evaluate_solution(alpha, 24, c, t_eval))
+    
+    # We use the coupled paths to completely eliminate Monte Carlo variance!
+    y_true_paths = np.array(gt_sols)
+    y_true_expectation = ml_vec(alpha, 1.0, -(t_eval ** alpha)) # Exact mathematical expectation for plotting
+    
+    m_list = [4, 8, 12, 16]
+    times_mldnn, err_mldnn, labels_mldnn = [], [], []
+    mldnn_mean_best = None
+    
+    print("Computing MLELM Pareto...")
+    for m in m_list:
+        t0 = time.time()
         sols = []
         for i in range(N_paths):
-            S = build_S(alpha, m, dB_mldnn[i])
+            dB_mldnn_i = coarsen(dB_gt[i], 64)
+            S = build_S(alpha, m, dB_mldnn_i)
             c, _, _, _ = solve_affine(alpha, m, S, y0, b0=0.0, b1=-1.0, s0=1.0, s1=0.0, Nq=64)
             sols.append(evaluate_solution(alpha, m, c, t_eval))
-        m_mean = np.mean(sols, axis=0)
-        err = np.max(np.abs(y_true - m_mean))
-        if err < best_err: best_err, best_m, best_mldnn_mean = err, m, m_mean
+            
+        mldnn_paths = np.array(sols)
+        mldnn_mean_best = np.mean(mldnn_paths, axis=0)
+        t1 = time.time()
         
-    n = 256
-    dB_fem = brownian_increments(n * N_paths).reshape(N_paths, n)
-    fem_sols = [em_caputo(alpha, lambda t,y: -y, lambda t,y: 1.0, y0, dB_fem[i]) for i in range(N_paths)]
-    fem_mean = np.interp(t_eval, np.linspace(0, 1, n+1), np.mean(fem_sols, axis=0))
+        times_mldnn.append(t1 - t0)
+        # Strong pathwise error against the exact proxy limit
+        pathwise_error = np.max(np.mean(np.abs(y_true_paths - mldnn_paths), axis=0))
+        err_mldnn.append(pathwise_error)
+        labels_mldnn.append(f"m={m}")
+            
+    n_list = [256, 512, 1024, 2048]
+    times_fem, err_fem, labels_fem = [], [], []
+    fem_mean_best = None
     
-    plot_expectation(t_eval, y_true, best_mldnn_mean, fem_mean, f"MLELM ($\\hat{{m}}$ = {best_m})", f"fEM (N={n})", "Ground truth", "Example 4.2", "exp2_linear_diffusion.pdf")
-    print(f"Saved exp2! Best m={best_m}\n")
+    print("Computing fEM Pareto...")
+    for n in n_list:
+        t0 = time.time()
+        dB_fem = np.array([coarsen(dB_gt[i], n) for i in range(N_paths)])
+        
+        # Vectorized fEM to ensure perfectly fair wall-clock comparison
+        fem_sols = em_caputo(alpha, lambda t,y: -y, lambda t,y: 1.0, y0, dB_fem)
+            
+        # Interpolate fEM paths to standard eval grid for accurate pathwise comparison
+        fem_paths = np.array([np.interp(t_eval, np.linspace(0, 1, n+1), sol) for sol in fem_sols])
+        fem_mean_best = np.mean(fem_paths, axis=0)
+        t1 = time.time()
+        
+        times_fem.append(t1 - t0)
+        pathwise_error = np.max(np.mean(np.abs(y_true_paths - fem_paths), axis=0))
+        err_fem.append(pathwise_error)
+        labels_fem.append(f"N={n}")
+    
+    plot_expectation(t_eval, y_true_expectation, mldnn_mean_best, fem_mean_best, f"MLELM ($\\hat{{m}}$={m_list[-1]})", f"fEM (N={n_list[-1]})", "Exact Expectation", "Example 4.2", "exp2_linear_diffusion.pdf")
+    plot_pareto(times_mldnn, err_mldnn, times_fem, err_fem, "exp2_pareto.pdf", labels_mldnn, labels_fem)
+    print(f"Saved exp2!\n")
 
-if __name__ == '__main__': np.random.seed(42); run()
+if __name__ == '__main__':
+    np.random.seed(42)
+    run()

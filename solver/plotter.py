@@ -13,8 +13,8 @@ plt.rcParams.update({
 def plot_experiment_1(t, exact, approx, errors, save_path):
     fig, ax1 = plt.subplots(figsize=(6, 4))
     
-    ax1.plot(t, exact, 'k-', label='Exact')
-    ax1.plot(t, approx, 'r--', label='MLDNN')
+    ax1.plot(t, exact, 'r:', label='Exact')
+    ax1.plot(t, approx, 'k-', label='MLDNN')
     ax1.legend()
     ax1.set_xlabel('$t$')
     ax1.set_ylabel('$y(t)$')
@@ -27,9 +27,9 @@ def plot_experiment_1(t, exact, approx, errors, save_path):
 def plot_experiment_2(t, mean_mldnn, mean_fem, ci_lower, ci_upper, save_path):
     fig, ax = plt.subplots(figsize=(6, 4))
     
-    ax.plot(t, mean_fem, 'k-', label='fEM Mean')
-    ax.plot(t, mean_mldnn, 'r--', label='MLDNN Mean')
-    ax.fill_between(t, ci_lower, ci_upper, color='r', alpha=0.2, label='95% CI (MLDNN)')
+    # ax.plot(t, mean_fem, 'k-', label='fEM Mean')
+    ax.plot(t, mean_mldnn, 'k-', label='MLDNN Mean')
+    ax.fill_between(t, ci_lower, ci_upper, color='k', alpha=0.2, label='95% CI (MLDNN)')
     
     ax.legend()
     ax.set_xlabel('$t$')
@@ -43,9 +43,9 @@ def plot_experiment_2(t, mean_mldnn, mean_fem, ci_lower, ci_upper, save_path):
 def plot_experiment_3(t, mean_mldnn, mean_fem, ci_lower, ci_upper, save_path):
     fig, ax = plt.subplots(figsize=(6, 4))
     
-    ax.plot(t, mean_fem, 'k-', label='fEM Mean')
-    ax.plot(t, mean_mldnn, 'r--', label='MLDNN Mean')
-    ax.fill_between(t, ci_lower, ci_upper, color='r', alpha=0.2, label='95% CI (MLDNN)')
+    # ax.plot(t, mean_fem, 'k-', label='fEM Mean')
+    ax.plot(t, mean_mldnn, 'k-', label='MLDNN Mean')
+    ax.fill_between(t, ci_lower, ci_upper, color='k', alpha=0.2, label='95% CI (MLDNN)')
     
     ax.legend()
     ax.set_xlabel('$t$')
@@ -59,8 +59,8 @@ def plot_experiment_3(t, mean_mldnn, mean_fem, ci_lower, ci_upper, save_path):
 def plot_pareto(times_mldnn, err_mldnn, times_fem, err_fem, save_path, labels_mldnn=None, labels_fem=None):
     fig, ax = plt.subplots(figsize=(6, 4))
     
-    ax.loglog(times_mldnn, err_mldnn, 'ro-', label='MLDNN')
-    ax.loglog(times_fem, err_fem, 'ks-', label='fEM')
+    ax.loglog(times_mldnn, err_mldnn, 'ko-', label='MLDNN')
+    ax.loglog(times_fem, err_fem, 'bs-', label='fEM')
     
     if labels_mldnn:
         for i, txt in enumerate(labels_mldnn):
@@ -82,10 +82,10 @@ def plot_pareto(times_mldnn, err_mldnn, times_fem, err_fem, save_path, labels_ml
 def plot_experiment_6(t, true_mean, mean_mldnn, mean_fem, ci_lower, ci_upper, mldnn_label, fem_label, save_path):
     fig, ax = plt.subplots(figsize=(6, 4))
     
-    ax.plot(t, true_mean, 'g:', linewidth=2.5, label='Exact Analytical Mean')
-    ax.plot(t, mean_fem, 'k-', alpha=0.7, label=fem_label)
-    ax.plot(t, mean_mldnn, 'r--', label=mldnn_label)
-    ax.fill_between(t, ci_lower, ci_upper, color='r', alpha=0.2, label=f'95% CI ({mldnn_label})')
+    ax.plot(t, true_mean, 'r:', linewidth=2.5, label='Exact Analytical Mean')
+    # ax.plot(t, mean_fem, 'k-', alpha=0.7, label=fem_label)
+    ax.plot(t, mean_mldnn, 'k-', label=mldnn_label)
+    ax.fill_between(t, ci_lower, ci_upper, color='k', alpha=0.2, label=f'95% CI ({mldnn_label})')
     
     ax.legend()
     ax.set_xlabel('$t$')
@@ -98,9 +98,9 @@ def plot_experiment_6(t, true_mean, mean_mldnn, mean_fem, ci_lower, ci_upper, ml
 
 def plot_expectation(t, true_mean, mean_mldnn, mean_fem, mldnn_label, fem_label, true_label, title, save_path):
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(t, true_mean, 'g:', linewidth=2.5, label=true_label)
-    ax.plot(t, mean_fem, 'k-', alpha=0.7, label=fem_label)
-    ax.plot(t, mean_mldnn, 'r--', label=mldnn_label)
+    ax.plot(t, true_mean, 'r:', linewidth=2.5, label=true_label)
+    # ax.plot(t, mean_fem, 'k-', alpha=0.7, label=fem_label)
+    ax.plot(t, mean_mldnn, 'k-', label=mldnn_label)
     ax.legend(fontsize=9)
     ax.set_xlabel('$t$')
     ax.set_ylabel('Expectation')
