@@ -172,6 +172,10 @@ def brownian_increments(n: int, rng=None) -> np.ndarray:
     rng = np.random.default_rng(SEED) if rng is None else rng
     return rng.standard_normal(n) * np.sqrt(1.0 / n)
 
+def brownian_paths(n_steps: int, n_paths: int, rng=None) -> np.ndarray:
+    rng = np.random.default_rng(SEED) if rng is None else rng
+    return rng.standard_normal((n_paths, n_steps)) * np.sqrt(1.0 / n_steps)
+
 def coarsen(dB_fine: np.ndarray, n: int) -> np.ndarray:
     f = dB_fine.size // n
     assert dB_fine.size % n == 0
@@ -327,14 +331,137 @@ def solve_gauss_newton(alpha, mhat, S, y0, bfun, bprime, sfun, sprime,
             print("  GN it %2d |r| = %.3e step %.2g" % (it, np.linalg.norm(r), step))
         if np.linalg.norm(step * dz) < tol * max(1.0, np.linalg.norm(z)):
             break
-    return z[:m1], z[m1:2 * m1], z[2 * m1:], float(np.linalg.norm(r) / np.sqrt(Nq)), it + 1
+    c, tb, ts = z[:m1], z[m1:2 * m1], z[2 * m1:]
+    return c, tb, ts, float(np.linalg.norm(r) / np.sqrt(Nq)), it + 1
+
 
 def evaluate_solution(alpha, mhat, c, t):
-    return basis_eval(alpha, mhat, np.asarray(t, float)).T @ c
+    """Evaluate solution at points t.
+    Supports both affine (size mhat+1) and deep (augmented) coefficient vectors.
+    """
+    expected_len = mhat + 1
+    c_arr = np.asarray(c, float)
+    # Basis matrix (Nq, m+1)
+    PhiT = basis_eval(alpha, mhat, np.asarray(t, float)).T
+    if c_arr.shape[0] == expected_len:
+        # Standard affine solution
+        return PhiT @ c_arr
+    # Deep solution: extra hidden features were added
+    hidden = c_arr.shape[0] - expected_len
+    PhiT_aug = _random_hidden_features(PhiT, hidden, None)
+    return PhiT_aug @ c_arr
+
+
+
 
 # ============================================================================
-# 5. Fractional Euler-Maruyama (Doan et al. 2020, ref. [1])
+# 5b. Deep ELM solvers (random hidden layer) for nonlinear problems
 # ============================================================================
+
+def _random_hidden_features(PhiT: np.ndarray, hidden: int = 64, rng: np.random.Generator = None) -> np.ndarray:
+    """Generate random hidden-layer features via a tanh activation.
+    PhiT has shape (Nq, m+1). The function returns an augmented feature matrix
+    of shape (Nq, m+1 + hidden).
+    """
+    rng = np.random.default_rng(SEED) if rng is None else rng
+    m1 = PhiT.shape[1]
+    # Random projection
+    W = rng.standard_normal((m1, hidden))
+    b = rng.standard_normal(hidden)
+    hidden_feat = np.tanh(PhiT @ W + b)
+    return np.hstack([PhiT, hidden_feat])
+
+def solve_affine_deep(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
+                     lam_b=1.0, lam_s=1.0, hidden=64, rng=None):
+    """Affine solve with an extra random hidden layer (ELM style)."""
+    B = Blocks(alpha, mhat, S, Nq)
+    t, PhiT = B.t, B.PhiT
+    PhiT_aug = _random_hidden_features(PhiT, hidden, rng)
+    m1_aug = PhiT_aug.shape[1]
+    m1 = PhiT.shape[1]
+    Z = np.zeros((Nq, m1))
+    Z_aug = np.zeros((Nq, m1_aug))
+    b0v = b0(t) if callable(b0) else np.full(Nq, float(b0))
+    s0v = s0(t) if callable(s0) else np.full(Nq, float(s0))
+    wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+    # R1: Phi c - DetT tb - StoT ts = y0
+    R1 = np.hstack([PhiT_aug, -B.DetT, -B.StoT])
+    # R2: wb * (Phi tb - b1*Phi c) = wb * b0
+    R2 = np.hstack([-b1 * wb * PhiT_aug, wb * PhiT, Z])
+    # R3: ws * (Phi ts - s1*Phi c) = ws * s0
+    R3 = np.hstack([-s1 * ws * PhiT_aug, Z, ws * PhiT])
+    Amat = np.vstack([R1, R2, R3])
+    rhs = np.concatenate([np.full(Nq, y0), wb * b0v, ws * s0v])
+    z, _, _, _ = lstsq(Amat, rhs, lapack_driver="gelsd")
+    c = z[:m1_aug]
+    tb = z[m1_aug:m1_aug + m1]
+    ts = z[m1_aug + m1:]
+    r = Amat @ z - rhs
+    return c, tb, ts, float(np.linalg.norm(r) / np.sqrt(Nq))
+
+def solve_gauss_newton_deep(alpha: float, mhat: int, S: np.ndarray, y0: float,
+                            bfun, bprime, sfun, sprime,
+                            Nq: int = NQ, lam_b: float = 1.0, lam_s: float = 1.0,
+                            tol: float = 1e-13, maxit: int = 60,
+                            hidden: int = 64, rng: np.random.Generator = None,
+                            z0=None, verbose=False):
+    """Gauss‑Newton solver that uses a random hidden‑layer augmentation.
+    The hidden features are generated once and kept fixed throughout the
+    iterations, mirroring the ELM philosophy.
+    """
+    B = Blocks(alpha, mhat, S, Nq)
+    t, PhiT = B.t, B.PhiT
+    PhiT_aug = _random_hidden_features(PhiT, hidden, rng)
+    m1_aug = PhiT_aug.shape[1]
+    m1 = PhiT.shape[1]
+    Z = np.zeros((Nq, m1))
+    wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+
+    def residual(z):
+        c, tb, ts = z[:m1_aug], z[m1_aug:m1_aug + m1], z[m1_aug + m1:]
+        N = PhiT_aug @ c
+        r1 = N - y0 - B.DetT @ tb - B.StoT @ ts
+        r2 = wb * (PhiT @ tb - bfun(t, N))
+        r3 = ws * (PhiT @ ts - sfun(t, N))
+        return np.concatenate([r1, r2, r3]), N
+
+    def jac(z, N):
+        J1 = np.hstack([PhiT_aug, -B.DetT, -B.StoT])
+        J2 = wb * np.hstack([-(bprime(t, N))[:, None] * PhiT_aug, PhiT, Z])
+        J3 = ws * np.hstack([-(sprime(t, N))[:, None] * PhiT_aug, Z, PhiT])
+        return np.vstack([J1, J2, J3])
+
+    if z0 is None:
+        # initialise from affine deep solve (linearising about y0)
+        b1_0 = float(bprime(np.array([0.0]), np.array([y0]))[0])
+        s1_0 = float(sprime(np.array([0.0]), np.array([y0]))[0])
+        b0f = lambda tt: bfun(tt, np.full_like(tt, y0)) - b1_0 * y0
+        s0f = lambda tt: sfun(tt, np.full_like(tt, y0)) - s1_0 * y0
+        c0, tb0, ts0, _ = solve_affine_deep(alpha, mhat, S, y0, b0f, b1_0, s0f, s1_0,
+                                             Nq, lam_b, lam_s, hidden, rng)
+        z = np.concatenate([c0, tb0, ts0])
+    else:
+        z = z0.copy()
+    r, N = residual(z)
+    for it in range(maxit):
+        J = jac(z, N)
+        dz, *_ = lstsq(J, -r, lapack_driver="gelsd")
+        step = 1.0
+        for _ in range(30):
+            r_new, N_new = residual(z + step * dz)
+            if np.linalg.norm(r_new) <= np.linalg.norm(r) * (1 + 1e-14) or step < 1e-8:
+                break
+            step *= 0.5
+        z, r, N = z + step * dz, r_new, N_new
+        if verbose:
+            print(f"  GN it {it:2d} |r| = {np.linalg.norm(r):.3e} step {step:g}")
+        if np.linalg.norm(step * dz) < tol * max(1.0, np.linalg.norm(z)):
+            break
+# ============================================================================
+
+# End of Gauss‑Newton iterations
+    c, tb, ts = z[:m1_aug], z[m1_aug:m1_aug + m1], z[m1_aug + m1:]
+    return c, tb, ts, float(np.linalg.norm(r) / np.sqrt(Nq)), it + 1
 
 def em_caputo(alpha, bfun, sfun, y0, dB, t_eval=None):
     """
