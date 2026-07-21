@@ -26,22 +26,21 @@ Four experiments showcase the methods:
 
 All figures are saved in the `exports/` directory.
 
-## Usage
-
-```bash
-# Activate the virtual environment (already created)
-source .venv/bin/activate
-
-# Run a specific experiment
-PYTHONPATH=. ./.venv/bin/python3 experiments/exp3_nonlinear_drift.py
-```
 
 The `run_all.sh` script sequentially runs all experiments.
 
-## Clean‑up
+## Differential Equations
 
-Temporary debugging scripts in `scratch/` have been removed.
+The experiments solve the following stochastic differential equations (SDEs):
+
+- **Exp 1 – Deterministic drift**: $D_t^\alpha y(t) = -y(t) + t^3$, with Caputo derivative of order $\alpha=0.75$ and initial condition $y(0)=1$.
+- **Exp 2 – Linear diffusion**: $D_t^\alpha y(t) = -y(t) + dB_t$, where $dB_t$ denotes Brownian motion, $\alpha=0.75$, $y(0)=1$.
+- **Exp 3 – Nonlinear drift**: $D_t^\alpha y(t) = -y(t)^3 + dB_t$, with $\alpha=0.75$, $y(0)=1$.
+- **Exp 4 – Geometric Brownian Motion**: $D_t^\alpha y(t) = \mu y(t) + \sigma y(t) dB_t$, with parameters $\mu=0$, $\sigma=1$, $\alpha=0.75$, $y(0)=1$.
+
+These equations are discretized using the Caputo derivative and solved via the MLDNN framework.
 
 ---
+---
 
-*Author: Arthur*
+
