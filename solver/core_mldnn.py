@@ -255,11 +255,33 @@ class Blocks:
         self.DetT = (self.t ** alpha)[:, None] * (self.PhiT @ A.T)  # rows t^a M^T A^T
         self.StoT = self.PhiT @ S.T
 
+def malliavin_trace_factor(alpha: float, t: np.ndarray, by: float = 0.0, order: int = 1) -> np.ndarray:
+    """
+    Computes the Malliavin trace factor C_alpha(t, by).
+    order=0: Leading-order kernel impulse (0-th order approximation).
+    order=1: Method 1 (1st-order Neumann expansion including drift-memory coupling).
+    """
+    t = np.asarray(t, dtype=float)
+    if np.isclose(alpha, 1.0):
+        # At alpha = 1.0, classical Ito-Stratonovich conversion is 0.5
+        c0 = 0.5
+        c1 = 0.5 * by if order >= 1 else 0.0
+        return np.full_like(t, c0 + c1) if t.ndim > 0 else (c0 + c1)
+    
+    c0 = sgamma(2.0 * alpha - 1.0) / (2.0 * (sgamma(alpha) ** 2))
+    t_term0 = c0 * np.power(np.clip(t, 0.0, None), 2.0 * alpha - 1.0)
+    if order == 0:
+        return t_term0
+    c1 = sgamma(3.0 * alpha - 1.0) / (2.0 * sgamma(alpha) * sgamma(2.0 * alpha))
+    t_term1 = c1 * np.power(np.clip(t, 0.0, None), 3.0 * alpha - 1.0) * by
+    return t_term0 + t_term1
+
 def solve_affine(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
-                 lam_b: float = 1.0, lam_s: float = 1.0):
+                 lam_b: float = 1.0, lam_s: float = 1.0, trace_order: int = 1):
     """
     Exact least-squares solution of the total loss (Sec. 2.2) for
-    b(t,y) = b0(t) + b1*y,  sigma(t,y) = s0(t) + s1*y.
+    b(t,y) = b0(t) + b1*y,  sigma(t,y) = s0(t) + s1*y,
+    with Method 1 Malliavin trace correction for Ito convergence.
     Returns (c, theta_b, theta_s, residual_norm).
     """
     B = Blocks(alpha, mhat, S, Nq)
@@ -269,40 +291,57 @@ def solve_affine(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
     b0v = b0(t) if callable(b0) else np.full(Nq, float(b0))
     s0v = s0(t) if callable(s0) else np.full(Nq, float(s0))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+    
+    # Method 1 Malliavin Trace Correction (including drift coupling by = b1):
+    c_alpha_t = malliavin_trace_factor(alpha, t, by=b1, order=trace_order)
+    b0_eff = b0v - c_alpha_t * s0v * s1
+    b1_eff = b1 - c_alpha_t * (s1 ** 2)
+    
     R1 = np.hstack([PhiT, -B.DetT, -B.StoT])
-    R2 = wb * np.hstack([-b1 * PhiT, PhiT, Z])
+    R2 = wb * np.hstack([-b1_eff[:, None] * PhiT, PhiT, Z])
     R3 = ws * np.hstack([-s1 * PhiT, Z, PhiT])
     Amat = np.vstack([R1, R2, R3])
-    rhs = np.concatenate([np.full(Nq, y0), wb * b0v, ws * s0v])
+    rhs = np.concatenate([np.full(Nq, y0), wb * b0_eff, ws * s0v])
     z, res, rank, sv = lstsq(Amat, rhs, lapack_driver="gelsd")
     r = Amat @ z - rhs
     return z[:m1], z[m1:2 * m1], z[2 * m1:], float(np.linalg.norm(r) / np.sqrt(Nq))
 
 def solve_gauss_newton(alpha, mhat, S, y0, bfun, bprime, sfun, sprime,
                        Nq=NQ, lam_b=1.0, lam_s=1.0, tol=1e-13, maxit=60,
-                       z0=None, verbose=False):
+                       z0=None, verbose=False, sprime2=None):
     """
     Gauss-Newton (analytic Jacobian, damped) on the total loss of Sec. 2.2 for
-    general b(t,y), sigma(t,y).  bprime/sprime = partial_y derivatives.
+    general b(t,y), sigma(t,y) with Malliavin trace correction (ctx/correction_term.md).
+    bprime/sprime = partial_y derivatives.
     """
     B = Blocks(alpha, mhat, S, Nq)
     t, PhiT = B.t, B.PhiT
     m1 = mhat + 1
     Z = np.zeros((Nq, m1))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+    c_alpha_t = malliavin_trace_factor(alpha, t)
 
     def residual(z):
         c, tb, ts = z[:m1], z[m1:2 * m1], z[2 * m1:]
         N = PhiT @ c
+        s_val = sfun(t, N)
+        sp_val = sprime(t, N)
+        b_eff = bfun(t, N) - c_alpha_t * s_val * sp_val
+        
         r1 = N - y0 - B.DetT @ tb - B.StoT @ ts
-        r2 = wb * (PhiT @ tb - bfun(t, N))
-        r3 = ws * (PhiT @ ts - sfun(t, N))
+        r2 = wb * (PhiT @ tb - b_eff)
+        r3 = ws * (PhiT @ ts - s_val)
         return np.concatenate([r1, r2, r3]), N
 
     def jac(z, N):
+        s_val = sfun(t, N)
+        sp_val = sprime(t, N)
+        sp2_val = sprime2(t, N) if sprime2 is not None else 0.0
+        bp_eff = bprime(t, N) - c_alpha_t * (sp_val**2 + s_val * sp2_val)
+        
         J1 = np.hstack([PhiT, -B.DetT, -B.StoT])
-        J2 = wb * np.hstack([-(bprime(t, N))[:, None] * PhiT, PhiT, Z])
-        J3 = ws * np.hstack([-(sprime(t, N))[:, None] * PhiT, Z, PhiT])
+        J2 = wb * np.hstack([-(bp_eff)[:, None] * PhiT, PhiT, Z])
+        J3 = ws * np.hstack([-(sp_val)[:, None] * PhiT, Z, PhiT])
         return np.vstack([J1, J2, J3])
 
     if z0 is None:
@@ -373,7 +412,7 @@ def _random_hidden_features(PhiT: np.ndarray, hidden: int = 64, rng: np.random.G
 
 def solve_affine_deep(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
                      lam_b=1.0, lam_s=1.0, hidden=64, rng=None):
-    """Affine solve with an extra random hidden layer (ELM style)."""
+    """Affine solve with an extra random hidden layer (ELM style) and Malliavin trace correction."""
     B = Blocks(alpha, mhat, S, Nq)
     t, PhiT = B.t, B.PhiT
     PhiT_aug = _random_hidden_features(PhiT, hidden, rng)
@@ -384,14 +423,20 @@ def solve_affine_deep(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
     b0v = b0(t) if callable(b0) else np.full(Nq, float(b0))
     s0v = s0(t) if callable(s0) else np.full(Nq, float(s0))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+    
+    # Malliavin Trace Correction
+    c_alpha_t = malliavin_trace_factor(alpha, t)
+    b0_eff = b0v - c_alpha_t * s0v * s1
+    b1_eff = b1 - c_alpha_t * (s1 ** 2)
+    
     # R1: Phi c - DetT tb - StoT ts = y0
     R1 = np.hstack([PhiT_aug, -B.DetT, -B.StoT])
     # R2: wb * (Phi tb - b1*Phi c) = wb * b0
-    R2 = np.hstack([-b1 * wb * PhiT_aug, wb * PhiT, Z])
+    R2 = np.hstack([-b1_eff[:, None] * wb * PhiT_aug, wb * PhiT, Z])
     # R3: ws * (Phi ts - s1*Phi c) = ws * s0
     R3 = np.hstack([-s1 * ws * PhiT_aug, Z, ws * PhiT])
     Amat = np.vstack([R1, R2, R3])
-    rhs = np.concatenate([np.full(Nq, y0), wb * b0v, ws * s0v])
+    rhs = np.concatenate([np.full(Nq, y0), wb * b0_eff, ws * s0v])
     z, _, _, _ = lstsq(Amat, rhs, lapack_driver="gelsd")
     c = z[:m1_aug]
     tb = z[m1_aug:m1_aug + m1]
@@ -404,11 +449,8 @@ def solve_gauss_newton_deep(alpha: float, mhat: int, S: np.ndarray, y0: float,
                             Nq: int = NQ, lam_b: float = 1.0, lam_s: float = 1.0,
                             tol: float = 1e-13, maxit: int = 60,
                             hidden: int = 64, rng: np.random.Generator = None,
-                            z0=None, verbose=False):
-    """Gauss‑Newton solver that uses a random hidden‑layer augmentation.
-    The hidden features are generated once and kept fixed throughout the
-    iterations, mirroring the ELM philosophy.
-    """
+                            z0=None, verbose=False, sprime2=None):
+    """Gauss‑Newton solver that uses a random hidden‑layer augmentation with Malliavin trace correction."""
     B = Blocks(alpha, mhat, S, Nq)
     t, PhiT = B.t, B.PhiT
     PhiT_aug = _random_hidden_features(PhiT, hidden, rng)
@@ -416,19 +458,29 @@ def solve_gauss_newton_deep(alpha: float, mhat: int, S: np.ndarray, y0: float,
     m1 = PhiT.shape[1]
     Z = np.zeros((Nq, m1))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+    c_alpha_t = malliavin_trace_factor(alpha, t)
 
     def residual(z):
         c, tb, ts = z[:m1_aug], z[m1_aug:m1_aug + m1], z[m1_aug + m1:]
         N = PhiT_aug @ c
+        s_val = sfun(t, N)
+        sp_val = sprime(t, N)
+        b_eff = bfun(t, N) - c_alpha_t * s_val * sp_val
+        
         r1 = N - y0 - B.DetT @ tb - B.StoT @ ts
-        r2 = wb * (PhiT @ tb - bfun(t, N))
-        r3 = ws * (PhiT @ ts - sfun(t, N))
+        r2 = wb * (PhiT @ tb - b_eff)
+        r3 = ws * (PhiT @ ts - s_val)
         return np.concatenate([r1, r2, r3]), N
 
     def jac(z, N):
+        s_val = sfun(t, N)
+        sp_val = sprime(t, N)
+        sp2_val = sprime2(t, N) if sprime2 is not None else 0.0
+        bp_eff = bprime(t, N) - c_alpha_t * (sp_val**2 + s_val * sp2_val)
+        
         J1 = np.hstack([PhiT_aug, -B.DetT, -B.StoT])
-        J2 = wb * np.hstack([-(bprime(t, N))[:, None] * PhiT_aug, PhiT, Z])
-        J3 = ws * np.hstack([-(sprime(t, N))[:, None] * PhiT_aug, Z, PhiT])
+        J2 = wb * np.hstack([-(bp_eff)[:, None] * PhiT_aug, PhiT, Z])
+        J3 = ws * np.hstack([-(sp_val)[:, None] * PhiT_aug, Z, PhiT])
         return np.vstack([J1, J2, J3])
 
     if z0 is None:
@@ -457,9 +509,6 @@ def solve_gauss_newton_deep(alpha: float, mhat: int, S: np.ndarray, y0: float,
             print(f"  GN it {it:2d} |r| = {np.linalg.norm(r):.3e} step {step:g}")
         if np.linalg.norm(step * dz) < tol * max(1.0, np.linalg.norm(z)):
             break
-# ============================================================================
-
-# End of Gauss‑Newton iterations
     c, tb, ts = z[:m1_aug], z[m1_aug:m1_aug + m1], z[m1_aug + m1:]
     return c, tb, ts, float(np.linalg.norm(r) / np.sqrt(Nq)), it + 1
 

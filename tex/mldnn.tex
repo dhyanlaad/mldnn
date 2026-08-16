@@ -280,23 +280,23 @@ The proof for this lemma is essentially a repeat of the construction of the matr
     \begin{equation}
         \EE \left [ (\theta_\sigma^\top \mathbf I(t) - \theta_\sigma^\top \mathbb S_\alpha \mathbf M^\Lambda(t))^2 \right ] \leq \Theta^2 \delta_S(\hat m)^2
     \end{equation}
-    where \( \delta_S(\hat m) = O(\hat m^{-1/2 + \epsilon}) \) for every \( \epsilon > 0 \).
+    where \( \delta_S(\hat m) = O(\hat m^{-(\alpha - 1/2) + \epsilon}) \) for every \( \epsilon > 0 \).
 \end{lemma}
 \begin{proof}
     As constructed earlier in \S\ref{sec:stoch_op}, \( \mathbb S_\alpha \mathbf M^\Lambda (t) \) is the \( \hat m \) degree \( L^2[0, 1] \) orthogonal projection of the stochastic integral vector \( \mathbf I(t) \) onto \(\mathrm{span} \{M_1^\Lambda, \dots , M_{\hat m}^\Lambda\}\) with coefficients described by Equation~\ref{eq:25}.
 
-    To bound the error of this polynomial projection, we must establish the regularity of a fixed component \( I_i \). In accordance with Remark~\ref{rem:alpha}, since \( \alpha > 1/2 \), the fractional kernel is square-integrable. Consequently, in accordance with the Kolmogorov continuity theorem \cite[Theorem 2.2.3]{oksendal2003stochastic}, the sample paths of the stochastic integral \( I_i \) exhibit H\"older continuity with an exponent infinitesimally smaller than \( 1/2 \). 
+    To bound the error of this polynomial projection, we must establish the regularity of a fixed component \( I_i \). In accordance with Remark~\ref{rem:alpha}, since \( \alpha > 1/2 \), the fractional kernel is square-integrable. Consequently, by the Kolmogorov continuity theorem for fractional Volterra processes, the sample paths of the stochastic integral \( I_i \) exhibit H\"older continuity of order \( \beta < \alpha - 1/2 \). 
 
-    We use the principles in \cite[\S 7.6]{devore1993constructive} to establish error bounds for the polynomial projection of Hölder-\(\beta\) functions, the \( L^2[0,1] \) error decays as \( O(\hat{m}^{-\beta}) \). Substituting our regularity bound \(\beta < 1/2 \), the error for each individual component is bounded by:
+    Using standard polynomial approximation theory \cite[\S 7.6]{devore1993constructive}, the \( L^2[0,1] \) orthogonal projection error for a H\"older-\(\beta\) function onto Müntz polynomials of degree \( \hat{m} \) decays as \( O(\hat{m}^{-\beta}) \). Substituting the sharp regularity exponent \( \beta = \alpha - 1/2 - \epsilon \), the error for each individual component is bounded by:
     \begin{equation}
-        \norm{I_i - (\mathbb{S}_\alpha \mathbf{M}^\Lambda)_i} = O(\hat{m}^{-1/2+\epsilon})
+        \norm{I_i - (\mathbb{S}_\alpha \mathbf{M}^\Lambda)_i} = O(\hat{m}^{-(\alpha - 1/2) + \epsilon})
     \end{equation}
     
-    To bound the total projection error for the term \( \theta_\sigma^\top \mathbf{I}(t) \), we apply the Cauchy-Schwarz inequality across the \( \hat{m} \) components. Given the parameter bound \( \norm{\theta_\sigma} \leq \Theta \), we evaluate the expectation over the fine-mesh realizations of the Brownian motion \( B \), which yields the stated bound:
+    To bound the total projection error for the term \( \theta_\sigma^\top \mathbf{I}(t) \), we apply the Cauchy-Schwarz inequality across the \( \hat{m} \) components. Given the parameter bound \( \norm{\theta_\sigma} \leq \Theta \), taking the expectation yields:
     \begin{equation}
         \EE \left[ \left ( \theta_\sigma^\top \mathbf{I}(t) - \theta_\sigma^\top \mathbb S_\alpha \mathbf M^\Lambda(t) \right )^2 \right] \le \Theta^2 \delta_S(\hat{m})^2
     \end{equation}
-    where \( \delta_S(\hat{m}) = O(\hat{m}^{-1/2+\epsilon}) \).
+    where \( \delta_S(\hat{m}) = O(\hat{m}^{-(\alpha - 1/2) + \epsilon}) \).
 \end{proof}
 
 We now state an assumption on the training outputs.

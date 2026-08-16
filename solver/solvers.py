@@ -65,6 +65,13 @@ class MLDNNSolver:
                                 lr=1.0, max_iter=epochs, tolerance_grad=1e-13, tolerance_change=1e-13,
                                 line_search_fn="strong_wolfe")
         
+        # Malliavin trace correction factor: C_alpha * t^{2*alpha - 1}
+        if np.isclose(self.alpha, 1.0):
+            c_alpha_t = torch.full_like(self.t_ts, 0.5)
+        else:
+            c_alpha = float(sgamma(2.0 * self.alpha - 1.0) / (2.0 * (sgamma(self.alpha) ** 2)))
+            c_alpha_t = c_alpha * torch.pow(torch.clamp(self.t_ts, min=0.0), 2.0 * self.alpha - 1.0)
+            
         def closure():
             optimizer.zero_grad()
             N_t = self.model(self.M_t_ts)
@@ -72,7 +79,17 @@ class MLDNNSolver:
             b_ts = self.bfun(self.t_ts, N_t)
             s_ts = self.sfun(self.t_ts, N_t)
             
-            loss_b = torch.mean((self.M_t_ts @ self.theta_b - b_ts)**2)
+            # Compute Malliavin trace correction for Ito convergence:
+            # Trace = C_alpha(t) * sigma(t, N_t) * d_sigma/dy(t, N_t)
+            N_eval = N_t.clone().detach().requires_grad_(True)
+            s_eval = self.sfun(self.t_ts, N_eval)
+            if s_eval.requires_grad:
+                sp_ts = torch.autograd.grad(s_eval.sum(), N_eval, create_graph=False)[0]
+            else:
+                sp_ts = torch.zeros_like(s_eval)
+            b_eff_ts = b_ts - c_alpha_t * s_ts * sp_ts
+            
+            loss_b = torch.mean((self.M_t_ts @ self.theta_b - b_eff_ts)**2)
             loss_s = torch.mean((self.M_t_ts @ self.theta_s - s_ts)**2)
             
             int_b = self.DetT_ts @ self.theta_b
