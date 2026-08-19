@@ -1,112 +1,151 @@
-import torch
-import torch.nn as nn
-import torch.optim as optim
-import numpy as np
-from .core_mldnn import get_A, build_S, basis_eval, chebyshev_nodes, em_caputo
+"""
+solvers.py
+==========
+High-level solver classes for Fractional Stochastic Differential Equations:
+1. FEMSolver: Fractional Euler-Maruyama baseline solver.
+2. MLDNNSolver: Muntz-Legendre Operational Matrix Solver (pure spectral representation,
+   zero hidden layers, N(t) = c^T M^Lambda(t)).
+"""
 
-torch.set_default_dtype(torch.float64)
+from __future__ import annotations
+import numpy as np
+from .core_mldnn import (
+    basis_eval,
+    chebyshev_nodes,
+    em_caputo,
+    solve_affine,
+    solve_gauss_newton,
+    evaluate_solution
+)
+from .milstein import MilsteinSolver, FastMilsteinSolver, solve_milstein_trig
+
+
 
 class FEMSolver:
-    def __init__(self, alpha, bfun, sfun):
+    """Fractional Euler-Maruyama (fEM) baseline solver."""
+    def __init__(self, alpha: float, bfun, sfun):
         self.alpha = alpha
         self.bfun = bfun
         self.sfun = sfun
 
-    def solve(self, y0, dB):
-        return em_caputo(self.alpha, self.bfun, self.sfun, y0, dB)
+    def solve(self, y0: float, dB: np.ndarray, t_eval: np.ndarray | None = None) -> np.ndarray:
+        """Solve a single or batch of Brownian paths using fEM."""
+        return em_caputo(self.alpha, self.bfun, self.sfun, y0, dB, t_eval=t_eval)
 
-class MLDNNNetwork(nn.Module):
-    def __init__(self, mhat, hidden_dim=32, num_layers=3):
-        super().__init__()
-        self.mhat = mhat
-        layers = []
-        layers.append(nn.Linear(mhat + 1, hidden_dim))
-        layers.append(nn.Tanh())
-        for _ in range(num_layers - 2):
-            layers.append(nn.Linear(hidden_dim, hidden_dim))
-            layers.append(nn.Tanh())
-        layers.append(nn.Linear(hidden_dim, 1))
-        self.net = nn.Sequential(*layers)
-        
-    def forward(self, M):
-        return self.net(M).squeeze(-1)
 
 class MLDNNSolver:
-    def __init__(self, alpha, mhat, bfun, sfun, y0, S, Nq=64):
+    """
+    Muntz-Legendre Operational Matrix Solver for Caputo Fractional SDEs.
+    
+    Pure spectral representation (L = 2 layers: input basis -> linear output, 0 hidden layers):
+        N(t) = c^T M^Lambda(t) = sum_{k=0}^{mhat} c_k M_k^Lambda(t)
+    
+    Parameters are solely the (mhat + 1) expansion coefficients c, and the (mhat + 1)
+    projection vectors theta_b, theta_s.
+    
+    Training:
+    - Affine systems: Exact linear least-squares (LAPACK gelsd) in closed-form (<1 ms).
+    - Nonlinear systems: Damped Gauss-Newton with analytic Jacobian.
+    - Zero hidden weights, zero backpropagation, machine precision (~1e-14).
+    """
+    def __init__(
+        self,
+        alpha: float,
+        mhat: int,
+        y0: float,
+        S: np.ndarray | None = None,
+        Nq: int = 64,
+        lam_b: float = 1.0,
+        lam_s: float = 1.0
+    ):
         self.alpha = alpha
         self.mhat = mhat
-        self.bfun = bfun
-        self.sfun = sfun
         self.y0 = y0
-        self.Nq = Nq
         self.S = S
-        self.device = torch.device('cpu') # Use CPU for robust float64 operations
+        self.Nq = Nq
+        self.lam_b = lam_b
+        self.lam_s = lam_s
         
-        self.model = MLDNNNetwork(mhat).to(self.device)
-        self.theta_b = nn.Parameter(torch.zeros(mhat + 1, device=self.device))
-        self.theta_s = nn.Parameter(torch.zeros(mhat + 1, device=self.device))
-        
-        self.t = chebyshev_nodes(Nq)
-        self.M_t = basis_eval(alpha, mhat, self.t).T
-        
-        A = get_A(alpha, mhat)
-        
-        DetT = (self.t ** alpha)[:, None] * (self.M_t @ A.T)
-        StoT = self.M_t @ S.T if S is not None else np.zeros_like(DetT)
-        
-        self.M_t_ts = torch.tensor(self.M_t, dtype=torch.float64, device=self.device)
-        self.DetT_ts = torch.tensor(DetT, dtype=torch.float64, device=self.device)
-        self.StoT_ts = torch.tensor(StoT, dtype=torch.float64, device=self.device)
-        self.t_ts = torch.tensor(self.t, dtype=torch.float64, device=self.device)
+        self.c: np.ndarray | None = None
+        self.theta_b: np.ndarray | None = None
+        self.theta_s: np.ndarray | None = None
+        self.residual_norm: float | None = None
+        self.n_iters: int = 0
 
-    def train(self, epochs=50, lr=0.1, lam_b=1.0, lam_s=1.0):
-        # We use LBFGS as it is perfectly suited for this formulation and reaches machine precision
-        optimizer = optim.LBFGS(list(self.model.parameters()) + [self.theta_b, self.theta_s], 
-                                lr=1.0, max_iter=epochs, tolerance_grad=1e-13, tolerance_change=1e-13,
-                                line_search_fn="strong_wolfe")
-        
-        # Malliavin trace correction factor: C_alpha * t^{2*alpha - 1}
-        if np.isclose(self.alpha, 1.0):
-            c_alpha_t = torch.full_like(self.t_ts, 0.5)
-        else:
-            c_alpha = float(sgamma(2.0 * self.alpha - 1.0) / (2.0 * (sgamma(self.alpha) ** 2)))
-            c_alpha_t = c_alpha * torch.pow(torch.clamp(self.t_ts, min=0.0), 2.0 * self.alpha - 1.0)
-            
-        def closure():
-            optimizer.zero_grad()
-            N_t = self.model(self.M_t_ts)
-            
-            b_ts = self.bfun(self.t_ts, N_t)
-            s_ts = self.sfun(self.t_ts, N_t)
-            
-            # Compute Malliavin trace correction for Ito convergence:
-            # Trace = C_alpha(t) * sigma(t, N_t) * d_sigma/dy(t, N_t)
-            N_eval = N_t.clone().detach().requires_grad_(True)
-            s_eval = self.sfun(self.t_ts, N_eval)
-            if s_eval.requires_grad:
-                sp_ts = torch.autograd.grad(s_eval.sum(), N_eval, create_graph=False)[0]
-            else:
-                sp_ts = torch.zeros_like(s_eval)
-            b_eff_ts = b_ts - c_alpha_t * s_ts * sp_ts
-            
-            loss_b = torch.mean((self.M_t_ts @ self.theta_b - b_eff_ts)**2)
-            loss_s = torch.mean((self.M_t_ts @ self.theta_s - s_ts)**2)
-            
-            int_b = self.DetT_ts @ self.theta_b
-            int_s = self.StoT_ts @ self.theta_s
-            
-            loss_sde = torch.mean((N_t - self.y0 - int_b - int_s)**2)
-            
-            loss = loss_sde + lam_b * loss_b + lam_s * loss_s
-            loss.backward()
-            return loss
-            
-        optimizer.step(closure)
-        
-    def evaluate(self, t):
-        t_np = np.asarray(t, dtype=np.float64)
-        M_t = basis_eval(self.alpha, self.mhat, t_np).T
-        M_t_ts = torch.tensor(M_t, dtype=torch.float64, device=self.device)
-        with torch.no_grad():
-            N_t = self.model(M_t_ts).cpu().numpy()
-        return N_t
+    def solve_affine(
+        self,
+        b0,
+        b1: float,
+        s0,
+        s1: float,
+        trace_order: int = 1
+    ) -> MLDNNSolver:
+        """Solve affine drift b(t, y) = b0(t) + b1*y and diffusion sigma(t, y) = s0(t) + s1*y
+        via closed-form linear least squares with Malliavin trace correction.
+        """
+        c, tb, ts, res = solve_affine(
+            alpha=self.alpha,
+            mhat=self.mhat,
+            S=self.S,
+            y0=self.y0,
+            b0=b0,
+            b1=b1,
+            s0=s0,
+            s1=s1,
+            Nq=self.Nq,
+            lam_b=self.lam_b,
+            lam_s=self.lam_s,
+            trace_order=trace_order
+        )
+        self.c = c
+        self.theta_b = tb
+        self.theta_s = ts
+        self.residual_norm = res
+        self.n_iters = 1
+        return self
+
+    def solve_nonlinear(
+        self,
+        bfun,
+        bprime,
+        sfun,
+        sprime,
+        sprime2=None,
+        maxit: int = 50,
+        tol: float = 1e-13,
+        verbose: bool = False
+    ) -> MLDNNSolver:
+        """Solve general nonlinear CFSDE via analytic Gauss-Newton on basis coefficients c."""
+        # solve_gauss_newton in core_mldnn returns (c, tb, ts, res)
+        out = solve_gauss_newton(
+            alpha=self.alpha,
+            mhat=self.mhat,
+            S=self.S,
+            y0=self.y0,
+            bfun=bfun,
+            bprime=bprime,
+            sfun=sfun,
+            sprime=sprime,
+            Nq=self.Nq,
+            lam_b=self.lam_b,
+            lam_s=self.lam_s,
+            tol=tol,
+            maxit=maxit,
+            verbose=verbose,
+            sprime2=sprime2
+        )
+        self.c = out[0]
+        self.theta_b = out[1]
+        self.theta_s = out[2]
+        self.residual_norm = out[3]
+        return self
+
+    def evaluate(self, t: np.ndarray) -> np.ndarray:
+        """Evaluate the continuous solution N(t) = c^T M^Lambda(t) at points t in [0, 1]."""
+        if self.c is None:
+            raise RuntimeError("Solver has not been solved yet. Call solve_affine or solve_nonlinear first.")
+        return evaluate_solution(self.alpha, self.mhat, self.c, t)
+
+
+# Alias for backward compatibility
+MLSpectralSolver = MLDNNSolver

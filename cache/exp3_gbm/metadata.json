@@ -1,0 +1,10 @@
+{
+  "model": "Fractional Geometric Brownian Motion (GBM)",
+  "equation": "D_t^alpha y(t) = mu * y(t) + sigma * y(t) * dW_t/dt",
+  "mu": 0.3,
+  "sigma": 0.15,
+  "y0": 1.0,
+  "n_paths": 5000,
+  "n_steps": 65536,
+  "total_runtime_sec": 195.93840408325195
+}

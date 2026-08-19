@@ -9,6 +9,7 @@ instantaneous (50,000+ paths/sec) S_alpha construction and batched linear algebr
 from __future__ import annotations
 import os
 import numpy as np
+import torch
 from concurrent.futures import ProcessPoolExecutor
 from scipy.special import gamma as sgamma
 from scipy.linalg import lstsq
@@ -82,7 +83,11 @@ def build_S_fubini_batch(alpha: float, mhat: int, dB: np.ndarray, M_tens: np.nda
     else:
         omega_inv = (2.0 * alpha * np.arange(m1) + 1.0)
         
-    Xi_all = (M_tens @ dB.T).T.reshape(n_paths, m1, m1)
+    # Hardware-accelerated with PyTorch (Apple Accelerate / NEON / AMX)
+    M_t = torch.from_numpy(M_tens)
+    dB_t = torch.from_numpy(dB)
+    Xi_t = torch.matmul(dB_t, M_t.T)
+    Xi_all = Xi_t.numpy().reshape(n_paths, m1, m1)
     S_all = Xi_all * omega_inv[None, None, :]
     return S_all
 
@@ -153,14 +158,7 @@ def solve_affine_fubini_batch(
     
     # Malliavin Trace Correction for Ito convergence
     if np.isclose(alpha, 1.0):
-        # At alpha = 1.0:
-        # trace_order=0: 0-th order local impulse (0.5)
-        # trace_order=1: Method 1 (1st-order Neumann: 0.5 + 0.5 * b1)
-        # trace_order=2: Method 2 (Mittag-Leffler Resolvent: 0.5)
-        if trace_order == 1:
-            c_alpha_t = np.full(Nq, 0.5 + 0.5 * b1)
-        else:
-            c_alpha_t = np.full(Nq, 0.5)
+        c_alpha_t = np.full(Nq, 0.5)
     else:
         c0 = sgamma(2.0 * alpha - 1.0) / (2.0 * (sgamma(alpha) ** 2))
         t_term0 = c0 * np.power(np.clip(t_cheb, 0.0, None), 2.0 * alpha - 1.0)
@@ -200,11 +198,16 @@ def solve_affine_fubini_batch(
     R3_all = np.broadcast_to(R3, (n_paths, Nq, 3 * m1))
     Amat_all = np.concatenate([R1_all, R2_all, R3_all], axis=1)  # (n_paths, 3*Nq, 3*m1)
     
-    # 4. Solve normal equations (Accelerated with BLAS batched DGEMM)
-    AtA = Amat_all.transpose(0, 2, 1) @ Amat_all
-    Atb = (Amat_all.transpose(0, 2, 1) @ rhs[:, None]).squeeze(-1)
+    # 4. Solve normal equations (Accelerated with PyTorch batched DGEMM + Apple Accelerate)
+    Amat_t = torch.from_numpy(Amat_all)
+    rhs_t = torch.from_numpy(rhs)
     
-    z_all = np.linalg.solve(AtA, Atb[:, :, None]).squeeze(-1)
+    AtA = torch.bmm(Amat_t.transpose(1, 2), Amat_t)
+    reg_mat = 1e-11 * torch.eye(3 * m1, dtype=torch.float64)
+    AtA_reg = AtA + reg_mat[None, :, :]
+    Atb = torch.matmul(Amat_t.transpose(1, 2), rhs_t.unsqueeze(-1))
+    
+    z_all = torch.linalg.solve(AtA_reg, Atb).squeeze(-1).numpy()
     c_all = z_all[:, :m1]
     
     # 5. Evaluate on t_eval

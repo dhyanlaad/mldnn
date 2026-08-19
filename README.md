@@ -1,46 +1,74 @@
-# MLDNN – Multi‑Layer Deep Neural Networks for Stochastic Differential Equations
+# Müntz–Legendre Operational Neural Networks for Fractional Stochastic Differential Equations
 
-## Overview
-
-This repository implements **MLDNN** solvers for fractional stochastic differential equations (SDEs) using the Muntz‑Legendre basis. Two families of solvers are provided:
-
-1. **Affine (linear) solvers** – classic least‑squares and Gauss‑Newton methods for problems where the drift and diffusion are affine in the state variable.
-2. **Deep (non‑linear) solvers** – an *Extreme Learning Machine* (ELM) style augmentation that adds a single random hidden layer (tanh activation) to the basis. The hidden weights are drawn once (deterministic seed) and remain fixed, enabling fast linear solves via least‑squares or Gauss‑Newton.
-
-The core components are in `solver/core_mldnn.py`:
-* Basis evaluation (`basis_eval`), operational matrix construction, and the `Blocks` helper.
-* `solve_affine`, `solve_gauss_newton` for affine problems.
-* `solve_affine_deep`, `solve_gauss_newton_deep` for the deep‑ELM variant.
-* `evaluate_solution` automatically reconstructs the hidden features when given a deep coefficient vector.
-
-## Experiments
-
-Four experiments showcase the methods:
-
-| Experiment | Goal | Key Parameters | Output |
-|------------|------|----------------|--------|
-| **Exp 1** – Deterministic drift | Verify deterministic case against analytical solution. | Muntz‑Legendre order `m` up to 24. | Expectation PDF, Pareto table. |
-| **Exp 2** – Linear diffusion | Compare against a reference Monte‑Carlo solution. | Hidden layer size 64, `Nq=256`. | Expectation, Q‑Q plots, variance PDF. |
-| **Exp 3** – Non‑linear drift (`-y³`) | Demonstrate deep‑ELM solver on a non‑linear drift. | Reduced hidden size (16), `Nq=128`, maxit = 30 for speed. | Expectation PDF, Pareto, Q‑Q (t = 0.3/0.6), variance PDF. |
-| **Exp 4** – Geometric Brownian Motion | Test against the analytic GBM solution. | Same deep‑ELM configuration as Exp 3. | Expectation PDF, Pareto, Q‑Q, variance PDF. |
-
-All figures are saved in the `exports/` directory.
-
-
-The `run_all.sh` script sequentially runs all experiments.
-
-## Differential Equations
-
-The experiments solve the following stochastic differential equations (SDEs):
-
-- **Exp 1 – Deterministic drift**: $D_t^\alpha y(t) = -y(t) + t^3$, with Caputo derivative of order $\alpha=0.75$ and initial condition $y(0)=1$.
-- **Exp 2 – Linear diffusion**: $D_t^\alpha y(t) = -y(t) + dB_t$, where $dB_t$ denotes Brownian motion, $\alpha=0.75$, $y(0)=1$.
-- **Exp 3 – Nonlinear drift**: $D_t^\alpha y(t) = -y(t)^3 + dB_t$, with $\alpha=0.75$, $y(0)=1$.
-- **Exp 4 – Geometric Brownian Motion**: $D_t^\alpha y(t) = \mu y(t) + \sigma y(t) dB_t$, with parameters $\mu=0$, $\sigma=1$, $\alpha=0.75$, $y(0)=1$.
-
-These equations are discretized using the Caputo derivative and solved via the MLDNN framework.
+A spectral neural framework for solving **Caputo Fractional Stochastic Differential Equations (CFSDEs)** via **Müntz–Legendre orthogonal polynomials** and **pathwise operational matrices of integration**.
 
 ---
+
+## Mathematical Overview
+
+We consider general Caputo fractional stochastic differential equations of order $\alpha \in (0.5, 1]$ on $t \in [0, 1]$:
+$$D_t^\alpha y(t) = b(t, y(t)) + \sigma(t, y(t)) \frac{dB_t}{dt}, \quad y(0) = y_0$$
+
+### Key Algorithmic Components
+1. **Müntz–Legendre Fractional Feature Layer:**  
+   The state trajectory is represented on an orthogonal Müntz–Legendre polynomial basis $\mathbf{M}^\Lambda(t) = [M_0^\Lambda(t), M_1^\Lambda(t), \dots, M_{\hat{m}}^\Lambda(t)]^\top$ with exponent sequence $\lambda_k = k\alpha$, natively capturing the singularity profile $t^\alpha$.
+2. **Deterministic Operational Matrix $\mathbb{P}_\alpha(t)$:**  
+   Evaluates the fractional Riemann–Liouville integral algebraically via exact Gamma function scaling:
+   $$\mathcal{I}^\alpha [\mathbf{M}^\Lambda(t)] = \mathbb{P}_\alpha(t) \mathbf{M}^\Lambda(t), \quad \mathbb{P}_\alpha(t) = t^\alpha \mathbf{C} \mathbf{D}_\alpha \mathbf{C}^{-1}$$
+3. **Stochastic Operational Matrix $\mathbb{S}_\alpha$ (Stochastic Fubini Contraction):**  
+   Evaluates the weakly singular fractional Itô integral $\mathcal{J}^\alpha [\mathbf{M}^\Lambda(t)] \approx \mathbb{S}_\alpha \mathbf{M}^\Lambda(t)$ via an exact adjoint contraction tensor, eliminating the need for step-by-step numerical stochastic convolution during training.
+4. **Instantaneous Algebraic Solves:**  
+   Reduces linear and affine SDEs to a regularized Moore–Penrose pseudoinverse solve across thousands of sample paths simultaneously via vectorized PyTorch BLAS operations. Nonlinear SDEs are solved via fast Gauss–Newton / Levenberg–Marquardt collocation.
+
 ---
+
+## Repository Structure
+
+```text
+.
+├── cache/                  # Archived simulation data, raw .npz arrays, and .csv tables
+│   ├── exp1_deterministic/ # Example 1: Deterministic Mittag-Leffler ODE
+│   ├── exp2_ou/            # Example 1: Fractional Ornstein-Uhlenbeck Process
+│   ├── exp3_gbm/           # Example 2: Fractional Geometric Brownian Motion
+│   ├── exp4_cir/           # Example 3: Fractional Cox-Ingersoll-Ross Process
+│   └── exp5_trig/          # Example 4: Nonlinear Trigonometric SDE
+├── experiments/            # Official manuscript experiment drivers
+│   ├── exp1_deterministic.py  # Mittag-Leffler deterministic benchmark
+│   ├── exp2_stochastic_ou.py  # Ornstein-Uhlenbeck (theta=0.3, sigma=0.15)
+│   ├── exp3_gbm.py            # Geometric Brownian Motion (mu=0.3, sigma=0.15)
+│   ├── exp4_cir.py            # Cox-Ingersoll-Ross (mu=0.3, sigma=0.15)
+│   ├── exp5_trig.py           # Nonlinear Trigonometric SDE (mu=0.3, sigma=0.15)
+│   └── common.py              # Shared C-accelerated fEM/Milstein wrapper
+├── solver/                 # Core spectral solver library
+│   ├── core_mldnn.py       # Muntz basis evaluation, operational blocks, collocation
+│   └── parallel.py         # Batched PyTorch solver & Stochastic Fubini tensor engine
+├── benchmark/              # High-performance C kernels for reference benchmarks
+│   ├── fast_fem_all.c      # Multithreaded Fractional Euler-Maruyama (ARM NEON)
+│   └── fast_milstein.c     # High-resolution classical Milstein solver (N=65,536)
+├── tex/                    # Manuscript LaTeX source
+│   ├── numerics/           # Numerical experiments section
+│   │   ├── figures/        # Publication figures
+│   │   ├── numerics.tex    # Section 4 LaTeX source
+│   │   └── references.bib  # BibLaTeX bibliography
+│   └── old/                # Legacy manuscript draft
+├── config.py               # Global experiment configurations and paths
+└── requirements.txt        # Python package dependencies
+```
+
+---
+
+## Benchmark Problems
+
+All simulations evaluate an ensemble of $R = 5{,}000$ independent Brownian paths against fine-mesh reference benchmarks ($N = 65{,}536 = 2^{16}$ steps):
+
+| Index | Model | SDE Formulation | Parameters | Benchmark Method |
+|:---|:---|:---|:---|:---|
+| **Example 1** | **Deterministic ODE** | $D_t^\alpha y(t) = -y(t)$ | $y_0 = 1.0$ | Exact Mittag–Leffler $E_\alpha(-t^\alpha)$ |
+| **Example 1** | **Ornstein–Uhlenbeck** | $D_t^\alpha y(t) = \theta(\mu - y(t)) + \sigma \frac{dB_t}{dt}$ | $\theta = 0.3, \mu = 0, \sigma = 0.15$ | Exact analytical Itô integral ($\alpha = 1$) / fEM |
+| **Example 2** | **Geometric Brownian Motion** | $D_t^\alpha y(t) = \mu y(t) + \sigma y(t) \frac{dB_t}{dt}$ | $\mu = 0.3, \sigma = 0.15, y_0 = 1.0$ | Exact geometric Itô formula ($\alpha = 1$) / fEM |
+| **Example 3** | **Cox–Ingersoll–Ross** | $D_t^\alpha y(t) = \mu y(t) + \sigma \sqrt{y(t)} \frac{dB_t}{dt}$ | $\mu = 0.3, \sigma = 0.15, y_0 = 1.0$ | Milstein ($\alpha = 1$, order 1.0) / fEM |
+| **Example 4** | **Nonlinear Trigonometric** | $D_t^\alpha y(t) = \mu \cos(y(t)) + \sigma \sin(y(t)) \frac{dB_t}{dt}$ | $\mu = 0.3, \sigma = 0.15, y_0 = 1.0$ | Milstein ($\alpha = 1$, order 1.0) / fEM |
+
+
 
 

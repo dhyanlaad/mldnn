@@ -7,19 +7,20 @@ __pycache__/
 *.toc
 *.bbl
 *.blg
+*.bcf
+*.run.xml
 *.synctex.gz
 *.fls
 *.fdb_latexmk
 .DS_Store
+*/.DS_Store
 
 # Cache and Binary outputs
 *.npy
 *.dylib
 *.so
-scratch/*.txt
+benchmark/*.txt
 
-# Keep export directories but ignore their contents
-solver/export/figures/*
-!solver/export/figures/.gitkeep
-solver/export/results/*
-!solver/export/results/.gitkeep
+# Keep export directory structure but ignore generated outputs
+exports/*
+!exports/.gitkeep

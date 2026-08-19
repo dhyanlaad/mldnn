@@ -172,9 +172,75 @@ def brownian_increments(n: int, rng=None) -> np.ndarray:
     rng = np.random.default_rng(SEED) if rng is None else rng
     return rng.standard_normal(n) * np.sqrt(1.0 / n)
 
-def brownian_paths(n_steps: int, n_paths: int, rng=None) -> np.ndarray:
+def _brownian_paths_uncached(n_steps: int, n_paths: int, rng=None) -> np.ndarray:
+    """Generate Brownian increments without caching (for chunk-based workflows)."""
     rng = np.random.default_rng(SEED) if rng is None else rng
     return rng.standard_normal((n_paths, n_steps)) * np.sqrt(1.0 / n_steps)
+
+def brownian_paths(n_steps: int, n_paths: int, rng=None, *,
+                   cache: bool = True, seed: int | None = None) -> np.ndarray:
+    """Generate Brownian increments with optional disk caching.
+
+    When ``cache=True`` (default), paths are stored as .npy files in
+    ``config.CACHE_DIR`` keyed by ``(n_steps, n_paths, seed)``.  On subsequent
+    calls with the same key, the cached array is memory-mapped for near-instant
+    loading.
+
+    Parameters
+    ----------
+    n_steps : int
+        Number of time steps per path.
+    n_paths : int
+        Number of independent Monte Carlo paths.
+    rng : numpy.random.Generator, optional
+        Random number generator.  If ``None``, uses the global ``SEED``.
+    cache : bool
+        If True, cache generated paths to disk and reuse on future calls.
+    seed : int, optional
+        Explicit seed for the cache key.  If ``None``, inferred from ``rng``
+        or falls back to the global ``SEED``.
+
+    Returns
+    -------
+    dB : ndarray, shape (n_paths, n_steps)
+    """
+    if not cache:
+        return _brownian_paths_uncached(n_steps, n_paths, rng)
+
+    # Determine seed for cache key
+    if seed is not None:
+        cache_seed = seed
+    elif rng is not None and hasattr(rng, 'bit_generator'):
+        # Extract seed from SeedSequence if available
+        ss = rng.bit_generator.seed_seq
+        cache_seed = ss.entropy if (ss is not None and ss.entropy is not None) else SEED
+    else:
+        cache_seed = SEED
+
+    # Build cache path
+    try:
+        import config as _cfg
+        cache_dir = _cfg.CACHE_DIR
+    except (ImportError, AttributeError):
+        from pathlib import Path
+        cache_dir = Path(__file__).resolve().parent.parent / "exports" / "results" / "cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"dB_n{n_steps}_p{n_paths}_s{cache_seed}.npy"
+
+    if cache_file.exists():
+        dB = np.load(str(cache_file), mmap_mode='r')
+        # Return a writable copy only if caller needs it; mmap is read-only
+        # but most consumers only read dB, so this is fine
+        return np.array(dB)
+
+    # Generate fresh paths
+    gen = np.random.default_rng(cache_seed) if rng is None else rng
+    dB = gen.standard_normal((n_paths, n_steps)) * np.sqrt(1.0 / n_steps)
+
+    # Save to cache
+    np.save(str(cache_file), dB)
+
+    return dB
 
 def coarsen(dB_fine: np.ndarray, n: int) -> np.ndarray:
     f = dB_fine.size // n
@@ -253,7 +319,7 @@ class Blocks:
         A = get_A(alpha, mhat)
         self.PhiT = self.Phi.T                               # (Nq, m+1)
         self.DetT = (self.t ** alpha)[:, None] * (self.PhiT @ A.T)  # rows t^a M^T A^T
-        self.StoT = self.PhiT @ S.T
+        self.StoT = self.PhiT @ S.T if S is not None else np.zeros_like(self.DetT)
 
 def malliavin_trace_factor(alpha: float, t: np.ndarray, by: float = 0.0, order: int = 1) -> np.ndarray:
     """
@@ -263,18 +329,28 @@ def malliavin_trace_factor(alpha: float, t: np.ndarray, by: float = 0.0, order: 
     """
     t = np.asarray(t, dtype=float)
     if np.isclose(alpha, 1.0):
-        # At alpha = 1.0, classical Ito-Stratonovich conversion is 0.5
-        c0 = 0.5
-        c1 = 0.5 * by if order >= 1 else 0.0
-        return np.full_like(t, c0 + c1) if t.ndim > 0 else (c0 + c1)
+        return np.full_like(t, 0.5) if t.ndim > 0 else 0.5
     
     c0 = sgamma(2.0 * alpha - 1.0) / (2.0 * (sgamma(alpha) ** 2))
     t_term0 = c0 * np.power(np.clip(t, 0.0, None), 2.0 * alpha - 1.0)
     if order == 0:
         return t_term0
-    c1 = sgamma(3.0 * alpha - 1.0) / (2.0 * sgamma(alpha) * sgamma(2.0 * alpha))
-    t_term1 = c1 * np.power(np.clip(t, 0.0, None), 3.0 * alpha - 1.0) * by
-    return t_term0 + t_term1
+    elif order == 1:
+        c1 = sgamma(3.0 * alpha - 1.0) / (2.0 * sgamma(alpha) * sgamma(2.0 * alpha))
+        t_term1 = c1 * np.power(np.clip(t, 0.0, None), 3.0 * alpha - 1.0) * by
+        return t_term0 + t_term1
+    elif order == 2:
+        # Method 2: Mittag-Leffler resolvent
+        ml_series = np.zeros_like(t)
+        z = by * np.power(np.clip(t, 0.0, None), alpha)
+        for k in range(50):
+            term = (z ** k) / sgamma(alpha * (k + 1) + 1.0)
+            ml_series += term
+            if np.max(np.abs(term)) < 1e-16:
+                break
+        return t_term0 * sgamma(alpha + 1.0) * ml_series
+    else:
+        return t_term0
 
 def solve_affine(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
                  lam_b: float = 1.0, lam_s: float = 1.0, trace_order: int = 1):
@@ -450,7 +526,7 @@ def solve_gauss_newton_deep(alpha: float, mhat: int, S: np.ndarray, y0: float,
                             tol: float = 1e-13, maxit: int = 60,
                             hidden: int = 64, rng: np.random.Generator = None,
                             z0=None, verbose=False, sprime2=None):
-    """Gauss‑Newton solver that uses a random hidden‑layer augmentation with Malliavin trace correction."""
+    """Gauss-Newton solver that uses a random hidden-layer augmentation with Malliavin trace correction."""
     B = Blocks(alpha, mhat, S, Nq)
     t, PhiT = B.t, B.PhiT
     PhiT_aug = _random_hidden_features(PhiT, hidden, rng)
