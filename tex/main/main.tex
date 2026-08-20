@@ -1,0 +1,265 @@
+\documentclass[11pt, a4paper]{article}
+
+\usepackage{lipsum}
+
+% Encoding and typography
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+
+% Page layout
+\usepackage[margin=1in]{geometry}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{enumitem}
+
+% Mathematics
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{mathtools}
+
+% Algorithms
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage[title]{appendix}
+
+% Numerics section dependencies
+\usepackage{graphicx}
+\usepackage{adjustbox}
+\usepackage{booktabs}
+\usepackage{multicol}
+\usepackage{caption}
+
+% Theorem environments
+\newtheoremstyle{theoremstyle}
+  {\topsep}{\topsep} 
+  {\itshape}{}       % Italic body
+  {\bfseries}{.}     
+  {5pt} 
+  {\thmname{#1}\thmnumber{ #2}\thmnote{ (#3)}}
+
+\newtheoremstyle{definitionstyle}
+  {\topsep}{\topsep} 
+  {\normalfont}{}    % Roman body
+  {\bfseries}{.}     
+  {5pt} 
+  {\thmname{#1}\thmnumber{ #2}\thmnote{ (#3)}}
+
+\theoremstyle{theoremstyle}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{corollary}[theorem]{Corollary}
+
+\theoremstyle{definitionstyle}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{exercise}[theorem]{Exercise}
+\newtheorem{assumption}[theorem]{Assumption}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{note}[theorem]{Note}
+
+% Macros
+\newcommand{\dd}{\mathop{}\!d}
+\NewDocumentCommand{\DD}{ O{} O{\alpha} O{t} }{%
+    \prescript{}{#1}{\rm D}^{#2}_{#3}%
+}
+\NewDocumentCommand{\II}{ O{} O{\alpha} O{t} }{%
+    \prescript{}{#1}{\rm I}^{#2}_{#3}%
+}
+\NewDocumentCommand{\JJ}{ O{} O{\alpha} O{t} }{%
+    \prescript{}{#1}{\rm J}^{#2}_{#3}%
+}
+\DeclareMathOperator{\PP}{\mathbb P}
+\DeclareMathOperator{\EE}{\mathbb E}
+\DeclareMathOperator{\linspan}{span}
+\newcommand{\odv}[1]{\frac{d}{d#1}}
+\newcommand{\sdv}{\frac{dB_t}{dt}}
+\newcommand{\pdv}[1]{\frac{\partial}{\partial#1}}
+\renewcommand{\Re}{\operatorname{Re}}
+\renewcommand{\Im}{\operatorname{Im}}
+\DeclarePairedDelimiter{\norm}{\lVert}{\rVert}
+\DeclarePairedDelimiter{\abs}{\lvert}{\rvert}
+\DeclarePairedDelimiter{\ip}{\langle}{\rangle}
+
+% Hyperlinks and references
+\usepackage{hyperref}
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    citecolor=green!70!black,
+    urlcolor=blue!70!black,
+}
+\usepackage[style=numeric]{biblatex}
+\addbibresource{references.bib}
+
+\title{A Physics-Informed Functional Link Neural Network based on M\"untz--Legendre Polynomials for Solving Non-linear Stochastic Fractional Initial Value Problems}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+    \lipsum[1]
+\end{abstract}
+
+\section{Introduction}
+\lipsum[2]
+
+\subsection{Model problem}\label{sec:model_problem}
+Let $(\Omega, \mathcal F, \PP)$ be a complete probability space, $T = [0, 1]$, and $\{\mathcal F_t\}_{t \in T} \subseteq \mathcal F$ be a filtration satisfying the usual conditions. Let $\{B_t\}_{t \in T}$ be a standard one-dimensional Brownian motion on the probability space adapted to the filtration. Consider the formal Caputo stochastic initial value problem (CSIVP) of order $\alpha \in (1/2, 1]$ for a stochastic process $y : T \times \Omega \to \mathbb R$:
+\begin{equation}\label{eq:csivp}
+    \DD y(t) = b(t, y(t)) + \sigma(t, y(t))\sdv, \quad y(0) = y_0,
+\end{equation}
+where $dB_t/dt$ denotes white noise. For the case of $\alpha = 1$, we recover a standard nonlinear stochastic differential equation:
+\begin{equation}
+    \dd{y(t)} = b(t, y(t))\dd{t} + \sigma(t, y(t))\dd{B_t}, \quad y(0) = y_0.
+\end{equation}
+We reformulate the formal CSIVP~\eqref{eq:csivp} into a mathematically rigorous stochastic Volterra integral equation (SVIE) and impose assumptions on the functions $b$, $\sigma$, and $y_0$ in \S~\ref{sec:well_posedness}.
+
+\section{Preliminaries}
+In this section, we introduce the fractional operators, the M\"untz--Legendre polynomials, and the concepts of a physics-inspired neural network (PINN) and a functional link neural network (FLNN) as the machine learning frameworks we utilize.
+
+\begin{definition}
+    Let $\alpha > 0$, $n = \lceil \alpha \rceil$, and $f \in \mathcal{AC}^n([0, 1])$. Let $\Gamma$ denote the gamma function. The \emph{left-sided Caputo fractional derivative} of order $\alpha$ of $f$ is
+    \begin{equation}
+        \DD f(t) = \frac{1}{\Gamma(n - \alpha)} \int_0^t (t - s)^{n - \alpha - 1}f^{(n)}(s)\dd{s}.
+    \end{equation} 
+\end{definition}
+
+For our case of $\alpha \in (1/2, 1]$, the Caputo derivative of $f$ is given by
+\begin{equation}
+    \DD f(t) = \frac{1}{\Gamma(1 - \alpha)}\int_0^t (t - s)^{-\alpha}f'(s)\dd{s}.
+\end{equation}
+
+\begin{definition}
+    Let $\alpha > 0$ and $f \in \mathcal L^1([0, 1])$. The \emph{left-sided Riemann--Liouville fractional integral} of order $\alpha$ of $f$ is
+    \begin{equation}
+        \II f(t) = \frac 1{\Gamma(\alpha)} \int_0^t (s - t)^{\alpha - 1}f(s)\dd{s}.
+    \end{equation}
+\end{definition}
+
+It is of interest to us that for $\alpha \in (1/2, 1]$ and $f \in \mathcal{AC}([0, 1])$,
+\begin{equation}
+    \II (\DD f(t)) = f(t) - f(0),
+\end{equation}
+which we extend to stochastic processes satisfying the CSIVP~\eqref{eq:csivp}.
+
+\subsection{Well-posedness of the model problem}\label{sec:well_posedness}
+We start by developing the necessary stochastic framework. Consider the probability space $(\Omega, \mathcal F, \PP)$ and filtration from \S~\ref{sec:model_problem}. For any $\mathcal F$-measurable real random variable $X : \Omega \to \mathbb R$, we define its mathematical expectation
+\begin{equation}
+    \EE (X) = \int_{\Omega}X(\omega)\PP(\dd{\omega}).
+\end{equation}
+We further define the Hilbert space of all equivalence classes of square integrable random variables on $(\Omega, \mathcal F, \PP)$:
+\begin{equation}
+    \mathcal L^2(\Omega, \mathcal F, \PP) = \{X : \Omega \to \mathbb R \mid \text{$X$ is $\mathcal F$-measurable and $\EE(X^2) < \infty$}\}.
+\end{equation}
+This space is equipped with a standard inner product
+\begin{equation}
+    \ip{u, v}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = \EE(uv) = \int_{\Omega}u(\omega)v(\omega)\PP(\dd{\omega})
+\end{equation}
+inducing the norm
+\begin{equation}
+    \norm{u}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = \ip{u, u}_{\mathcal L^2(\Omega, \mathcal F, \PP)}^{1/2} = \EE (u^2)^{1/2}
+\end{equation}
+for all $u, v \in \mathcal L^2(\Omega, \mathcal F, \PP)$. For time dependent analysis over $T = [0, 1]$, we consider the Banach space of continuous functions from $T$ into $\mathcal L^2(\Omega, \mathcal F_t, \PP)$, which we denote by $C(T; \mathcal L^2(\Omega, \mathcal F, \PP))$. We say that a stochastic process $y : T \times \Omega \to \mathbb R$ belongs to this space if
+\begin{enumerate}[label=(\alph*)]
+    \item $y(t, \cdot) \in \mathcal L^2(\Omega, \mathcal F_t, \PP)$ for all $t \in T$, and
+    \item the mapping $t \mapsto y(t, \cdot)$ is continuous in the mean-square sense for all $t \in T$:
+    \begin{equation}
+        \lim_{s \to t} \norm{y(t, \cdot) - y(s, \cdot)}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = 0.
+    \end{equation}
+\end{enumerate}
+The space $C(T; \mathcal L^2(\Omega, \mathcal F, \PP))$ is endowed with the uniform norm:
+\begin{equation}
+    \norm{y}_{C(T; \mathcal L^2(\Omega, \mathcal F, \PP))} = \sup_{t \in T} \norm{y(t)}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = \sup_{t \in T} \EE(y(t)^2)^{1/2}.
+\end{equation}
+
+We now formally integrate the CSIVP~\eqref{eq:csivp} with the operator $\II$ to get a SVIE:
+\begin{equation}\label{eq:svie}
+    y(t) = y_0 + \frac 1{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}b(s, y(s))\dd{s} + \frac 1{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}\sigma(s, y(s))\dd{B_s}.
+\end{equation}
+For a stochastic process $y$ to solve the CSIVP~\eqref{eq:csivp}, we mean for it to satisfy the SVIE~\eqref{eq:svie}. We now establish assumptions on $b$, $\sigma$, and $y_0$ to ensure the SVIE~\eqref{eq:svie} is well-posed.
+\begin{enumerate}[label=(A\arabic*)]
+    \item \label{as:a1} $y_0 \in \mathcal L^2(\Omega, \mathcal F_0, \PP)$.
+    \item \label{as:a2} The drift $b : T \times \mathbb R \to \mathbb R$ and diffusion $\sigma : T \times \mathbb R \to \mathbb R$ are Borel measurable and there exists a constant $L > 0$ such that for all $t \in T$ and $x_1, x_2 \in \mathbb R$,
+    \begin{equation}
+        \abs{b(t, x_1) - b(t, x_2)} + \abs{\sigma(t, x_1) - \sigma(t, x_2)} \leq L\abs{x_1 - x_2}.
+    \end{equation}
+    \item \label{as:a3} There exists a constant $C > 0$ such that for $t \in T$ and $x \in \mathbb R$, it holds that
+    \begin{equation}
+        b(t, x)^2 + \sigma(t, x)^2 \leq C(1 + x^2)
+    \end{equation}
+\end{enumerate}
+
+\subsection{M\"untz--Legendre polynomials}\label{sec:muntz_legendre}
+The architecture of our ML framework is heavily dependent on the M\"untz--Legendre polynomials \cite[\S 2.1]{milovanovic1999muntz}, which possess complex degrees (and by extension, fractional degrees), better capturing the singular behaviour of solutions to fractional differential equations. Define a M\"untz sequence $\Lambda = \{\lambda_0, \dots \lambda_n\}$ to be a set of complex numbers with $\Re (\lambda_k) > -1/2$ for all $k \in \{0, \dots , n\}$.
+
+\begin{definition}
+    For the preceeding M\"untz sequence $\Lambda$, the $m$th degree ($m \in \{0, \dots, n\}$) M\"untz--Legendre polynomial on $[0, 1]$ is defined as
+    \begin{equation}
+        M^{\Lambda}_m(t) = \sum_{k=0}^m \eta^{(m)}_k t^{\lambda_k}, \quad \eta^{(m)}_k = \prod_{j=0}^{n-1} (\lambda_j + \overline{\lambda_m} + 1) \prod_{\substack{j=0 \\ j \neq k}}^n \frac{1}{\lambda_k - \lambda_j}
+    \end{equation} 
+\end{definition}
+Additionally, the polynomials possess the orthogonality property
+\begin{equation}
+    \int_0^1 M^{\Lambda}_j(t)\overline{M^\Lambda_k(t)}\dd{t} = \frac{\delta_{j,k}}{2\Re (\lambda_j) + 1}.
+\end{equation}
+
+
+In the ensuing analysis, we let $\lambda_k = k\alpha$.
+
+\subsection{Functional link neural networks}
+\lipsum[5]
+% PINN followed by FLNN
+
+\section{Proposed method}\label{sec:proposed_method}
+% Traditional global polynomial approximation schemes for fractional stochastic models such as the M\"untz--Legendre collocation method of Singh and Mehra \cite{singh2023algorithm} attempt to discretize stochastic integral equations via deterministic spectral projections. However, these methods struggle with non-linear multiplicative noise where projecting onto deterministic polynomial bases introduces a Stratonovich bias by omitting the necessary Malliavin trace correction (\S~\ref{sec:malliavin}). Furthermore, existing numerical demonstrations were restricted to problems that were degenerate ($\alpha = 0$) or with diffusion absent, leaving fully coupled fractional SDEs unverified.
+% ^ Potentially move to introduction ^
+
+We formulate the proposed method in this section. To overcome the difficulties of numerically differentiating the rough sample paths of a stochastic process, properly handle non-linear multiplicative noise with the Malliavin correction, and eliminating non-local memory accumulation during training, we propose a unified framework utilizing operational matrices and a physics-informed functional link neural network based on M\"untz--Legendre polynomials (ML-PIFLNN) capable of handling fully coupled non-linear CSIVPs.
+
+Consider the SVIE \eqref{eq:svie}:
+\begin{equation}
+    y(t) = y_0 + \frac 1{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}b(s, y(s))\dd{s} + \frac 1{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}\sigma(s, y(s))\dd{B_s},
+\end{equation}
+and the vector of M\"untz--Legendre polynomials with the M\"untz sequence $\Lambda = \{0, \alpha, \dots, n\alpha\}$:
+\begin{equation}
+    \mathbf M^\Lambda_n(t) = [M_0^\Lambda(t) \; \cdots \; M^\Lambda_n(t)]^\top \in \mathbb R^n.
+\end{equation}
+
+\subsection{Operational matrices of fractional integration}
+
+\subsubsection{Deterministic operational matrix}
+\lipsum[14]
+
+\subsubsection{Stochastic operational matrix}
+\lipsum[15]
+
+\subsection{M\"untz--Legendre functional link neural network}
+\lipsum[8]
+
+\subsection{Malliavin trace correction}\label{sec:malliavin}
+\lipsum[16]
+
+\subsection{Collocation scheme and loss function formulation}
+\lipsum[17]
+
+\section{Convergence analysis}
+\lipsum[8]
+
+\subsection{Preliminaries}
+\lipsum[11]
+
+\subsection{Proof of convergence}
+\lipsum[12]
+
+\section{Numerical experiments}
+\lipsum[9]
+
+\printbibliography
+
+\end{document}
