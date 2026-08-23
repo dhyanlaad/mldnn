@@ -2,5 +2,6 @@ numpy
 scipy
 mpmath
 pandas
+tabulate
 matplotlib
 torch

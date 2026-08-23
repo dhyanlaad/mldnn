@@ -119,8 +119,8 @@ FEM_N_COARSE: int = 2**14  # 16,384 steps
 FEM_N_SWEEP: list[int] = [2**10, 2**12, 2**14, 2**16, 2**18]
 
 # Monte Carlo paths & parallelization
-MC_NUM_PATHS: int = 1000
-MC_NUM_PATHS_LARGE: int = 10000
+MC_NUM_PATHS: int = 500
+MC_NUM_PATHS_LARGE: int = 5000
 MC_BATCH_SIZE: int = 100
 
 # Leverage all Apple Silicon performance & efficiency cores

@@ -3,7 +3,7 @@ exp3_gbm.py
 ===========
 Fractional Geometric Brownian Motion (GBM) Experiment Suite:
 Equation: D_t^alpha y(t) = mu * y(t) + sigma * y(t) * dW_t/dt, y(0) = 1.0
-Parameters: mu = 0.3, sigma = 0.15, y0 = 1.0, R = 5000 paths, N = 65,536 steps
+Parameters: mu = 0.3, sigma = 0.15, y0 = 1.0, R = 500 paths, N = 65,536 steps
 - alpha = 1.0: Exact geometric Ito benchmark
 - alpha < 1.0: Fractional Euler-Maruyama (C fEM) benchmark
 """
@@ -39,7 +39,7 @@ def main():
     mu = 0.3
     sigma = 0.15
     y0 = 1.0
-    n_paths = 5000
+    n_paths = 500
     n_steps = 65536
     t_eval = np.linspace(0.0, 1.0, 101)
     Nq = 64
@@ -83,7 +83,7 @@ def main():
         diff = exact_eval_a10 - sol_m
         mse_t = np.mean(diff ** 2, axis=0)
         sup_mse = float(np.max(mse_t))
-        l2_mse = float(np.trapz(mse_t, t_eval))
+        l2_mse = float(np.trapezoid(mse_t, t_eval))
         
         error_records.append({
             "mhat": m,
@@ -185,4 +185,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-

@@ -74,7 +74,7 @@ def run_experiment_1():
             diff = exact - y_pred
             abs_diff = np.abs(diff)
             
-            l2_err = float(np.sqrt(np.trapz(diff ** 2, t_eval)))
+            l2_err = float(np.sqrt(np.trapezoid(diff ** 2, t_eval)))
             max_abs = float(np.max(abs_diff))
             mean_abs = float(np.mean(abs_diff))
             sup_mse = float(np.max(diff ** 2))

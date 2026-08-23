@@ -53,6 +53,7 @@ typedef struct {
 } WorkerArgs;
 
 static inline double eval_b(int model_type, double y, double p1, double p2, double p3) {
+    (void)p3;
     switch (model_type) {
         case MODEL_OU:
             // p1 = theta, p2 = mu -> theta*(mu - y)
@@ -77,6 +78,8 @@ static inline double eval_b(int model_type, double y, double p1, double p2, doub
 }
 
 static inline double eval_s(int model_type, double y, double p1, double p2, double p3) {
+    (void)p1;
+    (void)p2;
     switch (model_type) {
         case MODEL_OU:
             // p3 = sigma -> sigma

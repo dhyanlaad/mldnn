@@ -5,7 +5,7 @@ Experiment: Stochastic Ornstein-Uhlenbeck (OU) Process (alpha = 1.0, nonzero dif
 Equation: dy(t) = theta * (mu - y(t)) dt + sigma * dW_t,  y(0) = 1.0
 Parameters: theta = 0.3, mu = 0.0, sigma = 0.15, y0 = 1.0, alpha = 1.0
 Sweeps: mhat in {2, 4, 8, 16, 24, 32, 40}
-Paths: 5000 paths, fine mesh = 65,536 steps
+Paths: 500 paths, fine mesh = 65,536 steps
 
 Benchmark: Exact analytic Ito integral solution
 y_exact(t) = y0 * exp(-theta * t) + sigma * exp(-theta * t) * int_0^t exp(theta * s) dW_s
@@ -26,7 +26,7 @@ if str(ROOT) not in sys.path:
 
 import config
 from solver.parallel import solve_affine_fubini_batch
-from solver.core_mldnn import brownian_paths
+from solver.core_mldnn import brownian_paths, ml_vec
 from experiments.common import save_experiment_cache
 
 plt.rcParams.update({
@@ -55,7 +55,7 @@ def run_experiment():
     sigma = 0.15
     y0 = 1.0
     Nq = 64
-    n_paths = 5000
+    n_paths = 500
     n_steps = 65536
     mhat_values = [1, 2, 4, 8, 16, 24, 32, 40]
     t_eval = np.linspace(0.0, 1.0, 101)
@@ -110,7 +110,7 @@ def run_experiment():
         diff = exact_eval - y_mldnn
         mse_t = np.mean(diff ** 2, axis=0)  # MSE along paths at each t in [0, 1]
         sup_mse = float(np.max(mse_t))
-        l2_mse = float(np.trapz(mse_t, t_eval))
+        l2_mse = float(np.trapezoid(mse_t, t_eval))
         sup_rmse = float(np.sqrt(sup_mse))
         l2_rmse = float(np.sqrt(l2_mse))
         term_mse = float(mse_t[-1])
@@ -267,4 +267,3 @@ def run_experiment():
 
 if __name__ == '__main__':
     run_experiment()
-

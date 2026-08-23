@@ -19,7 +19,9 @@ from .core_mldnn import (
     chebyshev_nodes,
     _pow_diff,
     _causal_conv,
-    evaluate_solution
+    evaluate_solution,
+    trace_coefficient,
+    prepare_operator_trace_quadrature,
 )
 
 def build_fubini_tensor(alpha: float, mhat: int, n_steps: int) -> tuple[np.ndarray, np.ndarray]:
@@ -105,7 +107,12 @@ def solve_affine_fubini_batch(
     lam_s: float = 1.0,
     t_eval: np.ndarray | None = None,
     M_tens: np.ndarray | None = None,
-    trace_order: int = 1
+    trace_order: int = 1,
+    correction: str = "operator_trace",
+    tikhonov_reg: float = 1e-11,
+    trace_quadrature_order: int = 32,
+    kernel_quadrature_order: int = 32,
+    bc_weight: float = 10.0,
 ) -> np.ndarray:
     """
     End-to-end fully vectorized & mathematically optimized affine solver for N_paths.
@@ -117,8 +124,11 @@ def solve_affine_fubini_batch(
     m1 = mhat + 1
     
     # Process in chunks of max 10,000 paths to optimize memory locality and cache
-    chunk_size = 10000
+    operator_mode = correction == "operator_trace"
+    chunk_size = 64 if operator_mode else 10000
     if n_paths > chunk_size:
+        if M_tens is None:
+            M_tens, _ = build_fubini_tensor(alpha, mhat, n_steps)
         results = []
         for i in range(0, n_paths, chunk_size):
             chunk_dB = dB[i:i + chunk_size]
@@ -136,7 +146,12 @@ def solve_affine_fubini_batch(
                 lam_s=lam_s,
                 t_eval=t_eval,
                 M_tens=M_tens,
-                trace_order=trace_order
+                trace_order=trace_order,
+                correction=correction,
+                tikhonov_reg=tikhonov_reg,
+                trace_quadrature_order=trace_quadrature_order,
+                kernel_quadrature_order=kernel_quadrature_order,
+                bc_weight=bc_weight,
             )
             results.append(res_chunk)
         return np.vstack(results)
@@ -156,11 +171,14 @@ def solve_affine_fubini_batch(
     s0v = s0(t_cheb) if callable(s0) else np.full(Nq, float(s0))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
     
-    # Malliavin Trace Correction for Ito convergence
-    if np.isclose(alpha, 1.0):
-        c_alpha_t = np.full(Nq, 0.5)
-    else:
-        c0 = sgamma(2.0 * alpha - 1.0) / (2.0 * (sgamma(alpha) ** 2))
+    # Legacy modes modify the local drift.  operator_trace instead inserts the
+    # accumulated finite-dimensional trace in the OME block after the base solve.
+    c0 = trace_coefficient(alpha)
+    if correction in ("none", "operator_trace"):
+        c_alpha_t = np.zeros(Nq)
+    elif correction == "constant":
+        c_alpha_t = np.full(Nq, c0)
+    elif correction == "legacy_t_power":
         t_term0 = c0 * np.power(np.clip(t_cheb, 0.0, None), 2.0 * alpha - 1.0)
         if trace_order == 0:
             c_alpha_t = t_term0
@@ -169,7 +187,6 @@ def solve_affine_fubini_batch(
             t_term1 = c1 * np.power(np.clip(t_cheb, 0.0, None), 3.0 * alpha - 1.0) * b1
             c_alpha_t = t_term0 + t_term1
         elif trace_order == 2:
-            # Method 2: Mittag-Leffler resolvent
             ml_series = np.zeros_like(t_cheb)
             z = b1 * np.power(np.clip(t_cheb, 0.0, None), alpha)
             for k in range(50):
@@ -180,13 +197,17 @@ def solve_affine_fubini_batch(
             c_alpha_t = t_term0 * sgamma(alpha + 1.0) * ml_series
         else:
             c_alpha_t = t_term0
+    else:
+        raise ValueError(f"Unknown correction: {correction}")
         
     b0_eff = b0v - c_alpha_t * s0v * s1
     b1_eff = b1 - c_alpha_t * (s1 ** 2)
     
     R2 = wb * np.hstack([-b1_eff[:, None] * PhiT, PhiT, Z])
     R3 = ws * np.hstack([-s1 * PhiT, Z, PhiT])
-    rhs = np.concatenate([np.full(Nq, y0), wb * b0_eff, ws * s0v])
+    phi0 = basis_eval(alpha, mhat, np.array([0.0]))[:, 0]
+    Rbc = bc_weight * np.concatenate([phi0, np.zeros(2 * m1)])[None, :]
+    rhs = np.concatenate([np.full(Nq, y0), wb * b0_eff, ws * s0v, [bc_weight * y0]])
     
     # 3. Assemble batched linear system
     StoT_all = np.einsum("qk,rjk->rqj", PhiT, S_all)
@@ -196,18 +217,69 @@ def solve_affine_fubini_batch(
     
     R2_all = np.broadcast_to(R2, (n_paths, Nq, 3 * m1))
     R3_all = np.broadcast_to(R3, (n_paths, Nq, 3 * m1))
-    Amat_all = np.concatenate([R1_all, R2_all, R3_all], axis=1)  # (n_paths, 3*Nq, 3*m1)
+    Rbc_all = np.broadcast_to(Rbc, (n_paths, 1, 3 * m1))
+    Amat_all = np.concatenate([R1_all, R2_all, R3_all, Rbc_all], axis=1)
     
     # 4. Solve normal equations (Accelerated with PyTorch batched DGEMM + Apple Accelerate)
     Amat_t = torch.from_numpy(Amat_all)
     rhs_t = torch.from_numpy(rhs)
     
     AtA = torch.bmm(Amat_t.transpose(1, 2), Amat_t)
-    reg_mat = 1e-11 * torch.eye(3 * m1, dtype=torch.float64)
+    reg_mat = tikhonov_reg * torch.eye(3 * m1, dtype=torch.float64)
     AtA_reg = AtA + reg_mat[None, :, :]
     Atb = torch.matmul(Amat_t.transpose(1, 2), rhs_t.unsqueeze(-1))
     
-    z_all = torch.linalg.solve(AtA_reg, Atb).squeeze(-1).numpy()
+    if operator_mode:
+        Hinv_t = torch.linalg.inv(AtA_reg)
+        z_t = torch.matmul(Hinv_t, Atb).squeeze(-1)
+    else:
+        z_t = torch.linalg.solve(AtA_reg, Atb).squeeze(-1)
+
+    if operator_mode and float(s1) != 0.0:
+        prepared = prepare_operator_trace_quadrature(
+            alpha=alpha,
+            mhat=mhat,
+            collocation_t=t_cheb,
+            trace_t=t_cheb,
+            trace_quadrature_order=trace_quadrature_order,
+            kernel_quadrature_order=kernel_quadrature_order,
+        )
+        M_s, G, trace_weights, q_trace = prepared
+        M_s_t = torch.from_numpy(M_s)
+        G_t = torch.from_numpy(G)
+        weights_t = torch.from_numpy(trace_weights)
+
+        J_ome_t = Amat_t[:, :Nq, :]
+        response_t = torch.bmm(Hinv_t, J_ome_t.transpose(1, 2))
+        response_sigma_t = response_t[:, 2 * m1:3 * m1, :]
+        hessian_sigma_t = Hinv_t[:, 2 * m1:3 * m1, 2 * m1:3 * m1]
+        theta_sigma_t = z_t[:, 2 * m1:3 * m1]
+        sigma_hat_t = torch.matmul(theta_sigma_t, M_s_t)
+
+        base_rhs_t = rhs_t.unsqueeze(0).expand(n_paths, -1)
+        residual_t = torch.bmm(Amat_t, z_t.unsqueeze(-1)).squeeze(-1) - base_rhs_t
+        residual_ome_t = residual_t[:, :Nq]
+        residual_contraction_t = torch.matmul(residual_ome_t, G_t)
+
+        D_c_sigma_t = (
+            torch.matmul(response_sigma_t, G_t) * sigma_hat_t[:, None, :]
+            + torch.matmul(hessian_sigma_t, M_s_t)
+            * residual_contraction_t[:, None, :]
+        )
+        integrand_t = torch.sum(D_c_sigma_t * M_s_t[None, :, :], dim=1)
+        trace_t = torch.sum(
+            integrand_t.reshape(n_paths, Nq, q_trace) * weights_t[None, :, :],
+            dim=2,
+        )
+
+        corrected_rhs_t = base_rhs_t.clone()
+        corrected_rhs_t[:, :Nq] -= trace_t
+        corrected_Atb_t = torch.bmm(
+            Amat_t.transpose(1, 2), corrected_rhs_t.unsqueeze(-1)
+        )
+        z_t = torch.matmul(Hinv_t, corrected_Atb_t).squeeze(-1)
+
+    z_all = z_t.numpy()
     c_all = z_all[:, :m1]
     
     # 5. Evaluate on t_eval
@@ -216,6 +288,198 @@ def solve_affine_fubini_batch(
         sols = c_all @ Phi_eval                     # (n_paths, N_eval)
         return sols
     return c_all
+
+
+def solve_nonlinear_fubini_batch(
+    alpha: float,
+    mhat: int,
+    dB: np.ndarray,
+    y0: float,
+    bfun,
+    bprime,
+    bprime2,
+    sfun,
+    sprime,
+    sprime2,
+    Nq: int = 64,
+    lam_b: float = 1.0,
+    lam_s: float = 1.0,
+    t_eval: np.ndarray | None = None,
+    M_tens: np.ndarray | None = None,
+    correction: str = "operator_trace",
+    max_iter: int = 30,
+    tol: float = 1e-10,
+    tikhonov_reg: float = 1e-10,
+    trace_quadrature_order: int = 32,
+    kernel_quadrature_order: int = 32,
+    chunk_size: int = 32,
+    bc_weight: float = 10.0,
+    return_trace: bool = False,
+):
+    """Batched nonlinear collocation with the finite-dimensional operator trace.
+
+    The callables accept ``(t, y)`` NumPy arrays.  The first solve is an uncorrected
+    Gauss--Newton solve.  In ``operator_trace`` mode its exact normal-equation Hessian
+    (including residual-weighted curvature) is differentiated, and a second solve is
+    performed with that accumulated trace frozen in the OME residual.
+    """
+    dB = np.asarray(dB, dtype=float)
+    if dB.ndim == 1:
+        dB = dB[None, :]
+    n_paths, n_steps = dB.shape
+    if correction not in ("none", "operator_trace"):
+        raise ValueError("nonlinear batch solver supports 'none' or 'operator_trace'")
+    if correction == "operator_trace" and (bprime2 is None or sprime2 is None):
+        raise ValueError("operator_trace requires bprime2 and sprime2")
+
+    if n_paths > chunk_size:
+        if M_tens is None:
+            M_tens, _ = build_fubini_tensor(alpha, mhat, n_steps)
+        solved, traces = [], []
+        for start in range(0, n_paths, chunk_size):
+            result = solve_nonlinear_fubini_batch(
+                alpha, mhat, dB[start:start + chunk_size], y0,
+                bfun, bprime, bprime2, sfun, sprime, sprime2,
+                Nq=Nq, lam_b=lam_b, lam_s=lam_s, t_eval=t_eval,
+                M_tens=M_tens, correction=correction, max_iter=max_iter,
+                tol=tol, tikhonov_reg=tikhonov_reg,
+                trace_quadrature_order=trace_quadrature_order,
+                kernel_quadrature_order=kernel_quadrature_order,
+                chunk_size=chunk_size, return_trace=return_trace,
+                bc_weight=bc_weight,
+            )
+            if return_trace:
+                values, trace = result
+                solved.append(values)
+                traces.append(trace)
+            else:
+                solved.append(result)
+        values = np.vstack(solved)
+        return (values, np.vstack(traces)) if return_trace else values
+
+    m1 = mhat + 1
+    S_all = build_S_fubini_batch(alpha, mhat, dB, M_tens)
+    t = chebyshev_nodes(Nq)
+    PhiT = basis_eval(alpha, mhat, t).T
+    A = get_A(alpha, mhat)
+    DetT = (t ** alpha)[:, None] * (PhiT @ A.T)
+    StoT = np.einsum("qk,rjk->rqj", PhiT, S_all)
+    wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
+    zero = np.zeros((n_paths, Nq, m1))
+    Phi = np.broadcast_to(PhiT, (n_paths, Nq, m1))
+    Det = np.broadcast_to(DetT, (n_paths, Nq, m1))
+    J1 = np.concatenate([Phi, -Det, -StoT], axis=2)
+    phi0 = basis_eval(alpha, mhat, np.array([0.0]))[:, 0]
+    Jbc = bc_weight * np.broadcast_to(
+        np.concatenate([phi0, np.zeros(2 * m1)])[None, None, :],
+        (n_paths, 1, 3 * m1),
+    )
+
+    def values(fun, state):
+        out = np.asarray(fun(t[None, :], state), dtype=float)
+        return np.broadcast_to(out, state.shape).copy()
+
+    # Affine Taylor initialization about y0, without any trace feedback.
+    state0 = np.full((n_paths, Nq), y0)
+    b1 = values(bprime, state0)
+    s1 = values(sprime, state0)
+    b0 = values(bfun, state0) - b1 * y0
+    s0 = values(sfun, state0) - s1 * y0
+    J2 = wb * np.concatenate([-b1[..., None] * Phi, Phi, zero], axis=2)
+    J3 = ws * np.concatenate([-s1[..., None] * Phi, zero, Phi], axis=2)
+    matrix = np.concatenate([J1, J2, J3, Jbc], axis=1)
+    rhs = np.concatenate([
+        np.full((n_paths, Nq), y0), wb * b0, ws * s0,
+        np.full((n_paths, 1), bc_weight * y0),
+    ], axis=1)
+    matrix_t = torch.from_numpy(matrix)
+    rhs_t = torch.from_numpy(rhs)
+    normal = torch.bmm(matrix_t.transpose(1, 2), matrix_t)
+    eye = torch.eye(3 * m1, dtype=torch.float64)[None]
+    normal_rhs = torch.bmm(matrix_t.transpose(1, 2), rhs_t.unsqueeze(-1))
+    z = torch.linalg.solve(normal + tikhonov_reg * eye, normal_rhs).squeeze(-1).numpy()
+
+    fixed_trace = np.zeros((n_paths, Nq))
+
+    def residual_and_jacobian(z_now):
+        c = z_now[:, :m1]
+        tb = z_now[:, m1:2 * m1]
+        ts = z_now[:, 2 * m1:]
+        state = c @ PhiT.T
+        b = values(bfun, state)
+        bp = values(bprime, state)
+        s = values(sfun, state)
+        sp = values(sprime, state)
+        r1 = state - y0 - tb @ DetT.T - np.einsum("rqj,rj->rq", StoT, ts) + fixed_trace
+        r2 = wb * (tb @ PhiT.T - b)
+        r3 = ws * (ts @ PhiT.T - s)
+        rbc = bc_weight * (c @ phi0 - y0)[:, None]
+        residual = np.concatenate([r1, r2, r3, rbc], axis=1)
+        j2 = wb * np.concatenate([-bp[..., None] * Phi, Phi, zero], axis=2)
+        j3 = ws * np.concatenate([-sp[..., None] * Phi, zero, Phi], axis=2)
+        jacobian = np.concatenate([J1, j2, j3, Jbc], axis=1)
+        return residual, jacobian, state
+
+    def optimize(z_start):
+        z_now = z_start.copy()
+        for _ in range(max_iter):
+            residual, jacobian, state = residual_and_jacobian(z_now)
+            jac_t = torch.from_numpy(jacobian)
+            res_t = torch.from_numpy(residual)
+            jtj = torch.bmm(jac_t.transpose(1, 2), jac_t)
+            jtr = torch.bmm(jac_t.transpose(1, 2), res_t.unsqueeze(-1))
+            diag = torch.diag_embed(torch.clamp(torch.diagonal(jtj, dim1=1, dim2=2), min=1e-8))
+            dz = torch.linalg.solve(jtj + 1e-8 * diag + tikhonov_reg * eye, -jtr).squeeze(-1).numpy()
+            # A shared backtracking factor keeps all paths vectorized.
+            old_norm = np.sum(residual * residual, axis=1)
+            step = 1.0
+            while step >= 2.0 ** -12:
+                candidate = z_now + step * dz
+                candidate_residual, _, _ = residual_and_jacobian(candidate)
+                if np.all(np.sum(candidate_residual * candidate_residual, axis=1) <= old_norm * (1.0 + 1e-12)):
+                    break
+                step *= 0.5
+            z_now = candidate
+            if np.max(np.linalg.norm(step * dz, axis=1)) < tol * max(1.0, np.max(np.linalg.norm(z_now, axis=1))):
+                break
+        return z_now, *residual_and_jacobian(z_now)
+
+    z, residual, jacobian, state = optimize(z)
+    trace = np.zeros((n_paths, Nq))
+    if correction == "operator_trace":
+        jac_t = torch.from_numpy(jacobian)
+        hessian = torch.bmm(jac_t.transpose(1, 2), jac_t).numpy()
+        rb = residual[:, Nq:2 * Nq]
+        rs = residual[:, 2 * Nq:3 * Nq]
+        curvature = (
+            -wb * rb * values(bprime2, state)
+            -ws * rs * values(sprime2, state)
+        )
+        hessian[:, :m1, :m1] += np.einsum("qi,rq,qj->rij", PhiT, curvature, PhiT)
+        hessian_inv = np.linalg.pinv(hessian, hermitian=True)
+
+        M_s, G, trace_weights, q = prepare_operator_trace_quadrature(
+            alpha, mhat, t, t, trace_quadrature_order, kernel_quadrature_order
+        )
+        response = np.einsum("rij,rqj->riq", hessian_inv, J1)
+        response_sigma = response[:, 2 * m1:3 * m1]
+        hessian_sigma = hessian_inv[:, 2 * m1:3 * m1, 2 * m1:3 * m1]
+        sigma_hat = z[:, 2 * m1:3 * m1] @ M_s
+        residual_contraction = residual[:, :Nq] @ G
+        d_c_sigma = (
+            np.einsum("riq,qs->ris", response_sigma, G) * sigma_hat[:, None, :]
+            + np.einsum("rij,js->ris", hessian_sigma, M_s)
+            * residual_contraction[:, None, :]
+        )
+        integrand = np.sum(d_c_sigma * M_s[None, :, :], axis=1)
+        trace = np.sum(integrand.reshape(n_paths, Nq, q) * trace_weights[None], axis=2)
+        fixed_trace[:] = trace
+        z, residual, jacobian, state = optimize(z)
+
+    result = z[:, :m1]
+    if t_eval is not None:
+        result = result @ basis_eval(alpha, mhat, np.asarray(t_eval, dtype=float))
+    return (result, trace) if return_trace else result
 
 def parallel_solve_affine(
     alpha: float,
@@ -231,7 +495,12 @@ def parallel_solve_affine(
     lam_s: float = 1.0,
     t_eval: np.ndarray | None = None,
     n_workers: int | None = None,
-    trace_order: int = 1
+    trace_order: int = 1,
+    correction: str = "operator_trace",
+    tikhonov_reg: float = 1e-11,
+    trace_quadrature_order: int = 32,
+    kernel_quadrature_order: int = 32,
+    bc_weight: float = 10.0,
 ) -> np.ndarray:
     """Wrapper that routes to the ultra-fast Stochastic Fubini batched solver."""
     return solve_affine_fubini_batch(
@@ -247,7 +516,12 @@ def parallel_solve_affine(
         lam_b=lam_b,
         lam_s=lam_s,
         t_eval=t_eval,
-        trace_order=trace_order
+        trace_order=trace_order,
+        correction=correction,
+        tikhonov_reg=tikhonov_reg,
+        trace_quadrature_order=trace_quadrature_order,
+        kernel_quadrature_order=kernel_quadrature_order,
+        bc_weight=bc_weight,
     )
 
 def _em_caputo_chunk(args):

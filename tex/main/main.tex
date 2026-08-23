@@ -75,6 +75,7 @@
 \DeclareMathOperator{\PP}{\mathbb P}
 \DeclareMathOperator{\EE}{\mathbb E}
 \DeclareMathOperator{\linspan}{span}
+\DeclareMathOperator{\diag}{diag}
 \newcommand{\odv}[1]{\frac{d}{d#1}}
 \newcommand{\sdv}{\frac{dB_t}{dt}}
 \newcommand{\pdv}[1]{\frac{\partial}{\partial#1}}
@@ -95,8 +96,9 @@
 \usepackage[style=numeric]{biblatex}
 \addbibresource{references.bib}
 
-\title{A Physics-Informed Functional Link Neural Network based on M\"untz--Legendre Polynomials for Solving Non-linear Stochastic Fractional Initial Value Problems}
+\title{A Physics-Informed Functional Link Neural Network based on M\"untz--Legendre Polynomials for Non-linear Stochastic Fractional Differential Equations}
 \date{}
+\author{}
 
 \begin{document}
 
@@ -114,7 +116,7 @@ Let $(\Omega, \mathcal F, \PP)$ be a complete probability space, $T = [0, 1]$, a
 \begin{equation}\label{eq:csivp}
     \DD y(t) = b(t, y(t)) + \sigma(t, y(t))\sdv, \quad y(0) = y_0,
 \end{equation}
-where $dB_t/dt$ denotes white noise. For the case of $\alpha = 1$, we recover a standard nonlinear stochastic differential equation:
+where $dB_t/dt$ denotes white noise. For the case of $\alpha = 1$, we recover a standard nonlinear stochastic initial value problem:
 \begin{equation}
     \dd{y(t)} = b(t, y(t))\dd{t} + \sigma(t, y(t))\dd{B_t}, \quad y(0) = y_0.
 \end{equation}
@@ -165,7 +167,7 @@ inducing the norm
 \begin{equation}
     \norm{u}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = \ip{u, u}_{\mathcal L^2(\Omega, \mathcal F, \PP)}^{1/2} = \EE (u^2)^{1/2}
 \end{equation}
-for all $u, v \in \mathcal L^2(\Omega, \mathcal F, \PP)$. For time dependent analysis over $T = [0, 1]$, we consider the Banach space of continuous functions from $T$ into $\mathcal L^2(\Omega, \mathcal F_t, \PP)$, which we denote by $C(T; \mathcal L^2(\Omega, \mathcal F, \PP))$. We say that a stochastic process $y : T \times \Omega \to \mathbb R$ belongs to this space if
+for all $u, v \in \mathcal L^2(\Omega, \mathcal F, \PP)$. For time dependent analysis over $T = [0, 1]$, we consider the Banach space of continuous functions from $T$ into $\mathcal L^2(\Omega, \mathcal F_t, \PP)$, which we denote by $\mathcal C(T; \mathcal L^2(\Omega, \mathcal F, \PP))$. We say that a stochastic process $y : T \times \Omega \to \mathbb R$ belongs to this space if
 \begin{enumerate}[label=(\alph*)]
     \item $y(t, \cdot) \in \mathcal L^2(\Omega, \mathcal F_t, \PP)$ for all $t \in T$, and
     \item the mapping $t \mapsto y(t, \cdot)$ is continuous in the mean-square sense for all $t \in T$:
@@ -173,9 +175,9 @@ for all $u, v \in \mathcal L^2(\Omega, \mathcal F, \PP)$. For time dependent ana
         \lim_{s \to t} \norm{y(t, \cdot) - y(s, \cdot)}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = 0.
     \end{equation}
 \end{enumerate}
-The space $C(T; \mathcal L^2(\Omega, \mathcal F, \PP))$ is endowed with the uniform norm:
+The space $\mathcal C(T; \mathcal L^2(\Omega, \mathcal F, \PP))$ is endowed with the uniform norm:
 \begin{equation}
-    \norm{y}_{C(T; \mathcal L^2(\Omega, \mathcal F, \PP))} = \sup_{t \in T} \norm{y(t)}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = \sup_{t \in T} \EE(y(t)^2)^{1/2}.
+    \norm{y}_{\mathcal C(T; \mathcal L^2(\Omega, \mathcal F, \PP))} = \sup_{t \in T} \norm{y(t)}_{\mathcal L^2(\Omega, \mathcal F, \PP)} = \sup_{t \in T} \EE(y(t)^2)^{1/2}.
 \end{equation}
 
 We now formally integrate the CSIVP~\eqref{eq:csivp} with the operator $\II$ to get a SVIE:
@@ -196,21 +198,45 @@ For a stochastic process $y$ to solve the CSIVP~\eqref{eq:csivp}, we mean for it
 \end{enumerate}
 
 \subsection{M\"untz--Legendre polynomials}\label{sec:muntz_legendre}
-The architecture of our ML framework is heavily dependent on the M\"untz--Legendre polynomials \cite[\S 2.1]{milovanovic1999muntz}, which possess complex degrees (and by extension, fractional degrees), better capturing the singular behaviour of solutions to fractional differential equations. Define a M\"untz sequence $\Lambda = \{\lambda_0, \dots \lambda_n\}$ to be a set of complex numbers with $\Re (\lambda_k) > -1/2$ for all $k \in \{0, \dots , n\}$.
+The architecture of our machine learning framework is heavily dependent on the M\"untz--Legendre polynomials \cite{milovanovic1999muntz}, which possess complex degrees (and by extension, fractional degrees), better capturing the singular behaviour of solutions to fractional differential equations. Define a M\"untz sequence $\Lambda = \{\lambda_n\}$ to be a set of complex numbers with $\Re (\lambda_k) > -1/2$ for all $k \in \mathbb N_0$.
 
 \begin{definition}
-    For the preceeding M\"untz sequence $\Lambda$, the $m$th degree ($m \in \{0, \dots, n\}$) M\"untz--Legendre polynomial on $[0, 1]$ is defined as
+    For a M\"untz sequence $\Lambda$, the $m$th degree M\"untz--Legendre polynomial on $[0, 1]$ is defined as
     \begin{equation}
         M^{\Lambda}_m(t) = \sum_{k=0}^m \eta^{(m)}_k t^{\lambda_k}, \quad \eta^{(m)}_k = \prod_{j=0}^{n-1} (\lambda_j + \overline{\lambda_m} + 1) \prod_{\substack{j=0 \\ j \neq k}}^n \frac{1}{\lambda_k - \lambda_j}
     \end{equation} 
 \end{definition}
 Additionally, the polynomials possess the orthogonality property
-\begin{equation}
-    \int_0^1 M^{\Lambda}_j(t)\overline{M^\Lambda_k(t)}\dd{t} = \frac{\delta_{j,k}}{2\Re (\lambda_j) + 1}.
+\begin{equation}\label{eq:muntz_orthogonality}
+    \int_0^1 M^{\Lambda}_j(t)\overline{M^\Lambda_k(t)}\dd{t} = \frac{\delta_{j,k}}{2\Re (\lambda_j) + 1}
 \end{equation}
+where $\delta_{j,k}$ is the Kronecker delta function.
 
+To guarantee that the Müntz--Legendre system $\{M_0^\Lambda(t), M_1^\Lambda(t), \dots\}$ forms a complete basis in $\mathcal L^2(0, 1)$, the sequence $\Lambda = \{\lambda_n\}$ must satisfy the complex Müntz--Sz\'{a}sz condition \cite{szasz1916}.
 
-In the ensuing analysis, we let $\lambda_k = k\alpha$.
+\begin{lemma}
+Let $\Lambda = \{\lambda_n\}$ be a M\"untz sequence. The system $\{M_0^\Lambda(t), M_1^\Lambda(t), \dots\}$ is complete in $\mathcal L^2(0, 1)$ if and only if the series
+\begin{equation}
+    \sum_{k=1}^\infty \frac{1 + 2\Re (\lambda_k)}{1 + \abs{\lambda_k}^2}
+    \label{eq:muntz_szasz}
+\end{equation}
+diverges to infinity. Under this condition, any function $f \in \mathcal L^2(0, 1)$ admits the expansion
+\begin{equation}
+    f(t) = \sum_{k=0}^\infty c_k M_k^\Lambda(t), \quad c_k = (2\Re(\lambda_k) + 1)\int_0^1 f(t)\overline{M_k^\Lambda(t)} \dd{t}.
+\end{equation}
+\end{lemma}
+
+In the ensuing analysis, we fix $\Lambda = \{n\alpha\}$. In this case, the series \eqref{eq:muntz_szasz} reduces to
+\begin{equation}
+    \sum_{k=1}^\infty \frac{1 + 2k\alpha}{1 + (k\alpha)^2} \sim \frac{2}{\alpha}\sum_{k=1}^\infty \frac{1}{k}
+\end{equation}
+which establishes the completeness of the basis for any fractional order $\alpha \in (1/2, 1]$.
+
+We may also represent the M\"untz--Legendre polynomials for this choice of $\Lambda$ as classical shifted Jacobi polynomials \cite{HOSSEINPOUR2019344}:
+\begin{equation}
+    M_m^\Lambda(t) = P_m^{(0, -1 + 1/\alpha)}(2t^\alpha - 1).
+\end{equation}
+This enables the usage of the standard three term recurrence relation of Jacobi polynomials to stably compute higher order M\"untz--Legendre polynomials.
 
 \subsection{Functional link neural networks}
 \lipsum[5]
@@ -226,28 +252,233 @@ Consider the SVIE \eqref{eq:svie}:
 \begin{equation}
     y(t) = y_0 + \frac 1{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}b(s, y(s))\dd{s} + \frac 1{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}\sigma(s, y(s))\dd{B_s},
 \end{equation}
-and the vector of M\"untz--Legendre polynomials with the M\"untz sequence $\Lambda = \{0, \alpha, \dots, n\alpha\}$:
+and the $n$-dimensional vector of M\"untz--Legendre polynomials with M\"untz sequence $\Lambda$:
 \begin{equation}
-    \mathbf M^\Lambda_n(t) = [M_0^\Lambda(t) \; \cdots \; M^\Lambda_n(t)]^\top \in \mathbb R^n.
+    \mathbf M^\Lambda_n(t) = [M_0^\Lambda(t) \; \cdots \; M^\Lambda_n(t)]^\top \in \mathbb R^{n+1}.
 \end{equation}
 
-\subsection{Operational matrices of fractional integration}
+For a realized Brownian sample path $B_t(\omega)$, we approximate the sample path $y(t)$ by projecting it onto $\mathbf M^\Lambda_n(t)$:
+\begin{equation}\label{eq:y_approx}
+    y(t) \approx y_n(t) = \mathbf c^\top \mathbf M_n^\Lambda (t) = \sum_{k=0}^n c_kM_k^\Lambda(t),
+\end{equation}
+where $\mathbf c \in \mathbb R^{n+1}$ is the primary trainable weight vector to be determined by the ML-PIFLNN. To avoid interatively performing numerical quadratures over non-linear functions during training, we also project the drift $b$, diffusion $\sigma$, and initial condition $y_0$ onto the same basis:
+\begin{equation}\label{eq:phy_approx}
+    b(t, y_n(t)) \approx \mathbf c_b^\top \mathbf M_n^\Lambda(t), \quad \sigma(t, y_n(t)) \approx \mathbf c_\sigma^\top \mathbf M^\Lambda_n(t), \quad y_0 = y_0\mathbf e^\top \mathbf M^\Lambda_n(t),
+\end{equation}
+where $\mathbf c_b, \mathbf c_\sigma \in \mathbb R^{n+1}$ are the auxiliary trainable weight vectors, and $\mathbf e = [1 \; 0 \cdots \; 0]^\top \in \mathbb R^{n+1}$ (since $M_0^\Lambda(t) = 1$ for all $t \in T$).
 
+We approximate the integrals in the SVIE \eqref{eq:svie} algebraically using precomputed deterministic and stochastic operational matrices:
+\begin{subequations}
+    \begin{gather}
+        \frac{1}{\Gamma(\alpha)}\int_0^t (t - s)^{\alpha - 1}\mathbf M_n^\Lambda(s)\dd{s} = \mathbf P_\alpha(t) \mathbf M_n^\Lambda(t), \\
+        \frac{1}{\Gamma(\alpha)} \int_0^t (t - s)^{\alpha - 1}\mathbf M_n^\Lambda(s)\dd{B_s} \approx \mathbf S_\alpha \mathbf M^\Lambda_n(t).
+    \end{gather}
+\end{subequations}
+
+Substituting the projections \eqref{eq:y_approx} and \eqref{eq:phy_approx} into the SVIE \eqref{eq:svie} transforms it into an operational matrix equation (OME):
+\begin{equation}\label{eq:ome}
+    \mathbf c^\top \mathbf M_n^\Lambda(t) = y_0\mathbf e^\top \mathbf M_n^\Lambda(t) + \mathbf c_b^\top \mathbf P_\alpha(t) \mathbf M_n^\Lambda(t) + \mathbf c_\sigma^\top \mathbf S_\alpha \mathbf M_n^\Lambda(t).
+\end{equation}
+
+The vectors $\mathbf c, \mathbf c_b, \mathbf c_\sigma \in \mathbb R^{n+1}$ are initially unknown. We assemble a single parameter vector:
+\begin{equation}\label{eq:theta}
+    \boldsymbol \theta = \begin{bmatrix} \mathbf c \\ \mathbf c_b \\ \mathbf c_\sigma \end{bmatrix} \in \mathbb R^{3(n+1)}.
+\end{equation}
+To determine $\boldsymbol \theta$, we evaluate the OME \eqref{eq:ome}, along with the conditions \eqref{eq:phy_approx} across a set $T_c = \{0 = t_0, t_1, \dots , t_{N_c} = 1\} \subset T$ of nodes. For linear SDEs, the system is a simple linear matrix system and the optimal parameter vector $\boldsymbol \theta^*$ is computed via linear least-squares, while for non-linear SDEs, the parameter vector $\boldsymbol \theta$ is optimized iteratively using Gauss--Newton minimization with analytic Jacobians, initialized from the linearized solution around the initial condition $y_0$.
+
+Once the optimal coefficients $\boldsymbol \theta^* = [(\mathbf c^*)^\top \; (\mathbf c_b^*)^\top \; (\mathbf c_\sigma^*)^\top ]^\top$ are obtained, the continuous sample path may be evaluated at any arbitrary time $t \in [0, 1]$ via the projection
+\begin{equation}
+    y(t) \approx y_n(t) = (\mathbf c^*)^\top \mathbf M_n^\Lambda(t).
+\end{equation}
+
+% \begin{remark}
+%     By the Wong--Zakai theorem, % Citation needed for equivalent nonsmooth but differentiable basis
+%     projecting the stochastic system onto a deterministic polynomial basis causes the approximation to obey standard calculus, converging to the Stratonovich interpretation of the stochastic differential equation rather than the It\^o formulation. For multiplicative noise, the Stratonovich and It\^o solutions differ by an extra drift term. The Malliavin trace calculates this exact shift, allowing us to subtract it from the drift ensuring the network converges strictly to the intended It\^o solution.
+% \end{remark}
+
+% For a fixed realization of the stochastic process $y$, we project it, the drift $\mu$, diffusion $\sigma$, and initial condition $y_0$ on to the M\"untz--Legendre basis:
+% \begin{equation}
+%     y(t) \approx \mathbf c^\top \mathbf M_n^\Lambda(t), \quad b(t, y(t)) \approx \mathbf c_b^\top \mathbf M_n^\Lambda(t), \quad \sigma(t, y(t)) \approx \mathbf c_\sigma^\top \mathbf M_n^\Lambda(t), \quad y_0 = y_0\mathbf e_0^\top \mathbf M_n^\Lambda (t),
+% \end{equation}
+% where $\mathbf c, \mathbf c_b, \mathbf c_\sigma \in \mathbb R^{n+1}$ are the learnable coefficient vectors, and $\mathbf e_0 = [1 \; 0 \; \cdots \; 0]^\top \in \mathbb R^{n+1}$.
+
+% Substituting these approximations into the SVIE \eqref{eq:svie}, and mapping the integrals through the deterministic operational matrix $\mathbf P_\alpha(t)$ and stochastic operational matrix $\mathbf S_\alpha$, we transform the SVIE into an operational matrix equation (OME):
+% \begin{equation}\label{eq:ome}
+%     \mathbf c^\top \mathbf M_n^\Lambda(t) = y_0\mathbf e_0^\top \mathbf M_n^\Lambda(t) + \mathbf c_b^\top\mathbf P_\alpha(t) \mathbf M_n^\Lambda(t) + \mathbf c_\sigma^\top \mathbf S_\alpha\mathbf M_n^\Lambda(t).
+% \end{equation}
+% The OME \eqref{eq:ome} replaces all non-local memory convolutions with static matrix multiplications, permitting the SVIE to be solved directly at the collocation points. In the following subsections, we proceed to construct the operational matrices $\mathbf P_\alpha(t)$ and $\mathbf S_\alpha$, derive the Malliavin correction for the drift $b$, and describe the ML-PIFNN architecture and loss formulation.
+
+\subsection{Operational matrices of fractional integration}
+In this subsection, we explicitly construct the deterministic and stochastic operational matrices for integration, $\mathbf P_\alpha (t)$ and $\mathbf S_\alpha$ respectively.
 \subsubsection{Deterministic operational matrix}
-\lipsum[14]
+Let $\mathbf X_n(t) = [t^{\lambda_0} \; \dots \; t^{\lambda_n}]^\top$ denote the vector of M\"untz monomials. Applying the $\II$ operator to an arbitrary monomial $t^{\lambda_k}$ for $k \in \{0, \dots , n\}$ yields
+\begin{equation}
+    \II (t^{\lambda_k}) = \frac 1{\Gamma(\alpha)} \int_0^t (t - s)^{\alpha - 1}s^{\lambda_k}\dd{s} = t^\alpha \frac{\Gamma(\lambda_k + 1)}{\Gamma(\lambda_k + \alpha + 1)}t^{\lambda_k}.
+\end{equation}
+Extending this across the entire vector $\mathbf X_n(t)$, we have
+\begin{equation}
+    \II \mathbf X_n(t) = t^{\alpha} \mathbf D_\alpha \mathbf X_n(t)
+\end{equation}
+where
+\begin{equation}
+    \mathbf D_\alpha = \diag \left ( \frac{\Gamma(\lambda_0 + 1)}{\Gamma(\lambda_0 + \alpha + 1)}, \frac{\Gamma(\lambda_1 + 1)}{\Gamma(\lambda_1 + \alpha + 1)}, \dots , \frac{\Gamma(\lambda_n + 1)}{\Gamma(\lambda_n + \alpha + 1)} \right ) \in \mathbb R^{(n+1) \times (n+1)}
+\end{equation}
+
+An arbitrary M\"untz--Legendre polynomials $M_k^\Lambda(t)$ is a linear combinations of the M\"untz monomials $\{t^{\lambda_0}, \dots , t^{\lambda_k}\}$. As such, there exists an invertible lower-triangular matrix $\mathbf C \in \mathbb R^{(n+1) \times (n+1)}$ such that
+\begin{equation}
+    \mathbf M_n^\Lambda(t) = \mathbf C \mathbf X_n(t) \iff \mathbf X_n(t) = \mathbf C^{-1}\mathbf M_n^\Lambda(t).
+\end{equation}
+We may now evaluate the action of the $\II$ operator on the M\"untz--Legendre basis vector $\mathbf M_n^\Lambda(t)$:
+\begin{equation}
+    \II \mathbf M_n^\Lambda(t) = \II(\mathbf C\mathbf X_n(t)) = \mathbf C(\II \mathbf X_n(t)) = \mathbf C(t^\alpha\mathbf D_\alpha\mathbf X_n(t)) = t^\alpha\mathbf C \mathbf D_\alpha \mathbf C^{-1}\mathbf M_n^\Lambda(t).
+\end{equation}
+As such, we may define the deterministic fractional operational matrix of integration as
+\begin{equation}
+    \mathbf P_\alpha(t) = t^{\alpha}\mathbf C \mathbf D_\alpha \mathbf C^{-1} \in \mathbb R^{(n+1) \times (n+1)}
+\end{equation}
+Forming the matrix $\mathbf C^{-1}$ through standard matrix inversion is numerically unstable due to the exponential growth of the condition number of the matrix $\mathbf C$. We firstly assemble the matrix $\mathbf C$ row-by-row using the three term Jacobi recurrence formula. Post-multiplying $\mathbf C$ by $\mathbf D_\alpha$ yields the scaled matrix $\mathbf C \mathbf D_\alpha = \tilde{\mathbf C}$, where the $k$th column of $\mathbf C$ is scaled by the $k$th diagonal entry of $\mathbf D_\alpha$. The time-independent factor $\mathbf C \mathbf D_\alpha \mathbf C^{-1}$ satisfies the linear matrix equation $(\mathbf C \mathbf D_\alpha \mathbf C^{-1}) \mathbf C = \tilde{\mathbf C}$. Since the matrix $\mathbf C$ is lower-triangular, this factor is strictly lower-triangular, and each row may be resolved via exact triangular back-substitution.
 
 \subsubsection{Stochastic operational matrix}
-\lipsum[15]
+Consider the It\^o integral of an arbitrary M\"untz--Legendre polynomial $M_i^\Lambda(t)$:
+\begin{equation}
+    I_i(t) = \frac 1{\Gamma(\alpha)} \int_0^t (t - s)^{\alpha - 1} M_i^\Lambda(s)\dd{B_s}.
+\end{equation}
+We assemble an $n$-dimensional vector of these It\^o integrals: $\mathbf I_n(t) = [I_0(t) \; \cdots \; I_n(t)]^\top$. For a fixed realization of Brownian motion $B_t(\omega)$, each component of $\mathbf I_n(t)$ represents a continuous, non-differentiable sample path on $T$. We may approximate $\mathbf I_n(t)$ by its orthogonal projection onto $\mathbf M_n^\Lambda(t)$:
+\begin{equation}\label{eq:som}
+    \mathbf I_n(t) \approx \mathbf S_\alpha\mathbf M_n^\Lambda(t).
+\end{equation}
+where $\mathbf S_\alpha$ is the realization-dependent operational matrix. Expanding the $i$th component of \eqref{eq:som}, we have
+\begin{equation}
+    I_i(t) = \sum_{j=0}^n (\mathbf S_\alpha)_{ij} M_j^\Lambda(t).
+\end{equation}
+Taking the $\mathcal L^2(0, 1)$ inner product of both sides with respect to an arbitrary basis polynomial $\mathbf M_k^\Lambda(t)$ for $k \in \{0, \dots , n\}$:
+\begin{equation}
+    \ip{I_i, M_k^\Lambda}_{\mathcal L^2(0, 1)} = \sum_{j=0}^n (\mathbf S_\alpha)_{ij} \ip{M_j^\Lambda, M_k^\Lambda}_{\mathcal L^2(0, 1)}.
+\end{equation}
+By the orthogonality of the M\"untz--Legendre polynomials \eqref{eq:muntz_orthogonality}, we have
+\begin{equation}
+    (\mathbf S_\alpha)_{ik} = \frac{\ip{I_i, M_k^\Lambda}_{\mathcal L^2(0,1)}}{\norm{M_k^\Lambda}_{\mathcal L^2(0,1)}} = (2k\alpha + 1)\int_0^1 I_i(s)M_k^\Lambda(s)\dd{s}.
+\end{equation}
+We may represent this compactly in matrix form. The stochastic fractional operational matrix of integration is given by
+\begin{equation}
+    \mathbf S_\alpha = \boldsymbol \Xi \boldsymbol \Omega^{-1},
+\end{equation}
+where
+\begin{equation}
+    \boldsymbol \Omega = \diag \left (1, \frac{1}{2\alpha + 1}, \dots, \frac{1}{2n\alpha + 1} \right )
+\end{equation}
+and $\boldsymbol \Xi \in \mathbb R^{(n+1)\times(n+1)}$ is the stochastic cross-covariance matrix whose elements are defined by the double integral
+\begin{equation}\label{eq:xi}
+    \Xi_{ij} = \frac 1{\Gamma(\alpha)} \int_0^1 \left [ \int_0^t (t - s)^{\alpha - 1}M_i^\Lambda(s)\dd{B_s} \right ] M_j^\Lambda(t) \dd{t}.
+\end{equation}
 
-\subsection{M\"untz--Legendre functional link neural network}
-\lipsum[8]
+Evaluating the double integral in \eqref{eq:xi} requires integrating the It\^o integral $I_i(t)$ repeatedly for every sample path. We overcome this computational bottleneck by applying the stochastic Fubini theorem \cite{veraar2012stochastic} over the domain $0 \leq s \leq t \leq 1$. Interchanging the order of the outer deterministic integral and the inner It\^o integral yields
+\begin{equation}\label{eq:xi_fubini}
+    \Xi_{ij} = \int_0^1 \left [ \frac 1{\Gamma(\alpha)} \int_s^1 (t - s)^{\alpha - 1}M_j^\Lambda(t)\dd{t} \right ] M_i^\Lambda(s)\dd{B_s}
+\end{equation}
+Let
+\begin{equation}
+    K^{(\alpha)}_j = \frac 1{\Gamma(\alpha)} \int_s^1 (t - s)^{\alpha - 1}M_j^\Lambda(t)\dd{t}.
+\end{equation}
+Equation \eqref{eq:xi_fubini} reduces to a single one-dimensional stochastic integral with a deterministic integrand:
+\begin{equation}\label{eq:xi_final}
+    \Xi_{ij} = \int_0^1 K^{(\alpha)}_j(s)M_i^\Lambda(s)\dd{B_s}.
+\end{equation}
 
+Over a uniform fine temporal partition $\{0 = s_0 < s_1 < \cdots < s_{n^*} = 1\}$ with step size $\Delta s = 1/n^*$ and Brownian increments $\Delta B_j = B_{s_j} - B_{s_{j-1}}$, the stochastic integral \eqref{eq:xi_final} is approximated with a Riemann sum:
+\begin{equation}
+    \Xi_{ij} \approx \sum_{j=1}^{n^*} K_j^{(\alpha)}(s_j)M_i^\Lambda(s_j)\Delta B_j.
+\end{equation}
+Since the coefficients of the Brownian increments are deterministic, they are computed once and stored in a static matrix $\mathbf T \in \mathbb R^{(n+1)^2 \times n^*}$. For a collection of $R$ sample paths with increment matrix $\Delta \mathbf B \in \mathbb R^{R \times n^*}$, the operational entries for all $R$ paths are computed simulataneously via the matrix product
+\begin{equation}
+    \Delta \mathbf B \mathbf T^\top \in \mathbb R^{R \times (n+1)^2}.
+\end{equation}
 \subsection{Malliavin trace correction}\label{sec:malliavin}
-\lipsum[16]
+% A critical challenge in global polynomial spectral methods for fractional stochastic differential equations is the discretization of multiplicative noise. The coefficient vector $\mathbf{c}_\sigma$ solving the operational matrix equation~\eqref{eq:ome} is fixed by enforcing the spectral approximations simultaneously across the nodal set $T_c \subset [0,1]$, meaning each component depends on the Brownian path over the entire interval rather than on $\mathcal{F}_t$ alone. Because the algebraic system computes $\mathbf{c}_\sigma^\top \mathbf{S}_\alpha \mathbf{M}_n^\Lambda(t)$ by multiplying this non-adapted random coefficient vector directly through the matrix of deterministic stochastic integrals $\mathbf{S}_\alpha$, the multiplication formula for the Skorokhod integral \cite{NualartPardoux1988} shows that this product yields the Stratonovich-type integral of $\sigma(t, y_n(t))$, rather than its It\^o or Skorokhod integral. The two formulations differ by a Malliavin trace anomaly: the integral of the diagonal Malliavin derivative of $\mathbf{c}_\sigma$ against the fractional kernel \cite{CassLim2019}. While these integrals coincide for additive noise, in the multiplicative of multiplicative noise, this trace must be explicitly subtracted from the drift. In this section, we derive this trace in closed form for the M\"untz--Legendre projection~\eqref{eq:phy_approx}. We establish that the corrected scheme converges to the exact It\^o solution of the SVIE~\eqref{eq:svie}, provided the trace vanishes as $n \to \infty$ for  a.e. $t \in T$.
+\lipsum[13]
+\subsection{M\"untz--Legendre functional link neural network}
+% Include algorithm and graphic of architecture.
+We now examine the architecture of the ML-PIFLNN. We adopt a single-layer functional link architecture that enhances the input space through a fractional feature map:
+\begin{subequations}
+    \begin{align}
+        \mathcal D_0 &= t \in T, \\
+        \mathcal D_1 &= \mathbf M_n^\Lambda(\mathcal D_0), \\
+        \mathcal D_2 &= y_n(t) = \mathbf c^\top \mathcal D_1.
+    \end{align}
+\end{subequations}
+where $\mathbf c \in \mathbb R^{n+1}$ is the primary trainable weight vector. By embedding non-integer powers directly into the network architecture, it possess the capability to represent weakly singular fractional sample paths to machine accuracy with a minimal parameter count. To handle non-linear drift $b$ and diffusion $\sigma$ without introducing iterative numerical integration, the ML-PIFLNN utilizes two auxiliary linear projections parameterized by $\mathbf c_b, \mathbf c_\sigma \in \mathbb R^{(n+1)}$:
+\begin{equation}
+    b(t, y(t)) \approx b(t, y_n(t)) = \hat b(t) = \mathbf c_b^\top \mathbf M_n^\Lambda(t), \quad \sigma(t, y(t)) \approx \sigma(t, y_n(t)) = \hat \sigma(t) = \mathbf c_\sigma^\top \mathbf M_n^\Lambda(t).
+\end{equation}
+
+Unlike deep multilayer perceptrons where gradients with respect to weights involve chain-rule products of hidden Jacobian matrices, the gradient of the ML-PIFLNN output with respect to its weights is the basis vector itself:
+\begin{equation}
+    \nabla_{\mathbf c} y_n(t) = \nabla_{\mathbf c_b} \hat b(t) = \nabla_{\mathbf c_\sigma} \hat \sigma(t) = \mathbf M_n^\Lambda(t).
+\end{equation}
+As a consequence, all residuals in the OME \eqref{eq:ome} depend linearly on the parameter vector $\boldsymbol \theta$ \eqref{eq:theta}.
 
 \subsection{Collocation scheme and loss function formulation}
-\lipsum[17]
+To discretize the system, we choose $N_c$ shifted Chebyshev training points, which we collect into the set $T_c \subseteq T$:
+\begin{equation}
+    t_i = \frac 12 \left ( 1 - \cos \frac{(2i - 1)\pi}{2N_c} \right ), \quad i \in \{1, \dots , N_c\},
+\end{equation}
+which effectively suppresses Runge-type boundary oscillations and optimizes our polynomial interpolation.
 
+We train the network parameter $\boldsymbol \theta = [\mathbf c^\top \; \mathbf c_b^\top \; \mathbf c_\sigma^\top]^\top$ by minimizing the loss function:
+\begin{equation}\label{eq:loss}
+    L(\mathbf c, \mathbf c_b, \mathbf c_\sigma) = L_{\mathrm{SDE}} + \lambda_bL_b + \lambda_\sigma L_\sigma, 
+\end{equation}
+where $\lambda_b, \lambda_\sigma > 0$ are regularizing weights, and the individual components are
+\begin{subequations}
+    \begin{align}\label{eq:loss_components}
+        L_{\mathrm{SDE}} &= \frac 1{N_c}\sum_{i=1}^{N_c} \left ( \mathbf c^\top \mathbf M_n^\Lambda(t_i) - y_0\mathbf e^\top \mathbf M_n^\Lambda(t_i) - \mathbf c_\sigma^\top \mathbf S_\alpha \mathbf M_n^\Lambda(t_i) \right )^2, \\
+        L_b &= \frac 1{N_c} \sum_{i=1}^{N_c} \left ( \mathbf c_b^\top \mathbf M_n^\Lambda(t_i) - \tilde{b}(t_i, \mathbf c^\top \mathbf M_n^\Lambda(t_i))\right )^2 \\
+        L_\sigma &= \frac 1{N_c} \sum_{i=0}^{N_c} \left ( \mathbf c_\sigma^\top \mathbf M_n^\Lambda(t_i) - \sigma(t_i, \mathbf c^\top \mathbf M_n^\Lambda(t_i))\right )^2.
+    \end{align}
+\end{subequations}
+
+We now describe the two optimization techniques we utilize based on the class of problem. We first consider the case of affine SDEs. Let $b(t, y) = b_0(t) + b_1y$ and $\sigma(t, y) = \sigma_0(t) + \sigma_1y$. When the drift and diffusion are affine in $y$, the loss components \eqref{eq:loss_components} are naturally linear with respect to $\boldsymbol \theta$. Define the basis collocation matrix $\boldsymbol \Phi \in \mathbb R^{N_c \times (n+1)}$ with entries $\Phi_{ij} = M_j^\Lambda(t_i)$, and the corresponding operational collocation matrices
+\begin{equation}
+    \boldsymbol \Phi_P = 
+    \begin{bmatrix}
+        (\mathbf P_\alpha(t_1)\mathbf M_n^\Lambda(t_1))^\top \\ \vdots \\ (\mathbf P_\alpha(t_{N_c})\mathbf M_n^\Lambda(t_{N_c}))^\top        
+    \end{bmatrix}, \quad
+    \boldsymbol \Phi_S =
+    \begin{bmatrix}
+        (\mathbf S_\alpha\mathbf M_n^\Lambda(t_1))^\top \\ \vdots \\ (\mathbf S_\alpha\mathbf M_n^\Lambda(t_{N_c}))^\top
+    \end{bmatrix} \in \mathbb R^{N_c \times (n+1)}.
+\end{equation}
+The loss function \eqref{eq:loss} simplifies to an exact linear least-squares problem:
+\begin{equation}
+    \min_{\boldsymbol \theta} \norm{\mathbf K \boldsymbol \theta - \mathbf d}_2^2
+\end{equation}
+where the block system matrix $\mathbf K \in \mathbb R^{3N_c \times 3(n+1)}$ and target vector $\mathbf d \in \mathbb R^{3N_c}$ are assembled as
+\begin{equation}
+    \mathbf K =
+    \begin{bmatrix}
+        \boldsymbol \Phi & -\boldsymbol \Phi_P & -\boldsymbol \Phi_S \\
+        -\sqrt{\lambda_b}b_1\boldsymbol \Phi & \sqrt{\lambda_b}\boldsymbol \Phi & \mathbf 0 \\
+        -\sqrt{\lambda_\sigma}\sigma_1 \boldsymbol \Phi & \mathbf 0 & \sqrt{\lambda_\sigma}\boldsymbol \Phi
+    \end{bmatrix}, \quad
+    \mathbf d =
+    \begin{bmatrix}
+        y_0\mathbf I_{N_c} \\ \sqrt{\lambda_b}\tilde{\mathbf b}_0 \\ \sqrt{\lambda_\sigma} \boldsymbol \sigma_0
+    \end{bmatrix},
+\end{equation}
+where $\tilde{\mathbf b}_0 = [\tilde b_0(t_1) \; \cdots \; \tilde b_0(t_{N_c})]^\top$, and $\boldsymbol \sigma_0 = [\sigma_0(t_1) \; \cdots \; \sigma_0(t_{N_c})]^\top$. We compute the optimal parameter vector $\boldsymbol \theta^* = [(\mathbf c^*)^\top \; (\mathbf c_b^*)^\top \; (\mathbf c_\sigma^*)^\top]^\top$ using the Moore--Penrose inverse:
+\begin{equation}
+    \boldsymbol \theta^* = (\mathbf K^\top \mathbf K)^{-1}\mathbf K^\top \mathbf d = \mathbf K^+ \mathbf d.
+\end{equation}
+
+In the case of a general non-linear drift and diffusion, the loss equation \eqref{eq:loss} is a non-linear least-squares problem
+\begin{equation}
+    \min_{\boldsymbol \theta} \frac 12 \norm{\mathbf r(\boldsymbol \theta)}_2^2.
+\end{equation}
+We solve for $\boldsymbol \theta$ via damped Gauss--Newton updates:
+\begin{equation}
+    \boldsymbol \theta^{(k+1)} = \boldsymbol \theta^{(k)} - \xi_k (\nabla_{\boldsymbol \theta} \mathbf r(\boldsymbol \theta^{(k)}))^+ \mathbf r(\boldsymbol \theta^{(k)}),
+\end{equation}
+where $\nabla_{\boldsymbol \theta} \mathbf r(\boldsymbol \theta) \in \mathbb R^{3N_c \times 3(n+1)}$ is the analytic Jacobian, and $\xi_k \in (0, 1]$ is a line-search dampening parameter. The iterations are initialized from the affine solution linearized around $y_0$.
 \section{Convergence analysis}
 \lipsum[8]
 

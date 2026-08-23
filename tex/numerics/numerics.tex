@@ -95,11 +95,17 @@
 
 \section{Numerical Experiments}
 
-% Call the method PI-MLFLNN (physics-informed Muntz-Legendre functional link neural network)
-
-% Brief introduction to section, define the errors used (see code), walkthrough of why the problems were chosen, in increasing complexity, all benchmarking specifications, computer specifications (leave placeholder), etc.
-
-% Expand upon the numerical results wherever apt under each example. Cite sources for where each problem has been taken from. Add captions to all the figures and tables, make sure to name the errors something more memorable and of a single character (e.g. E_{L(^\infty(T;L^2\Omega))}) in all tables.
+All stochastic results below were regenerated with random seed $42$, $R=500$
+paired Brownian paths, $N^*=65{,}536$ fine increments, and $N_q=64$
+collocation points.  Multiplicative-noise examples use the finite-dimensional
+operator-trace Malliavin correction obtained by differentiating the full
+least-squares normal equations; the trace is frozen for one corrected solve.
+The initial condition is included as a weighted endpoint residual.  We report
+$\mathcal E_\infty=\sup_t\operatorname{MSE}(t)$ and
+$\mathcal E_2=\int_0^1\operatorname{MSE}(t)\,\dd t$.  ``Discrete $L_2$'' in
+the mean tables denotes $N_e^{-1}\left(\sum_{i=1}^{N_e}
+|\bar y_R(t_i)-y_{\rm ref}(t_i)|^2\right)^{1/2}$ on $N_e=101$ equally
+spaced evaluation points; discrete $L_\infty$ is the corresponding maximum.
 
 \begin{example}[Ornstein--Uhlenbeck Process]
 \label{ex:linear_fractional_sde}
@@ -112,17 +118,17 @@ We first consider the general linear Caputo fractional stochastic differential e
     
     \begin{table}[htbp]
     \centering
-    \caption{[CAPTION NEEDED]}
+    \caption{Maximum absolute error $\|y_n - y_\mathrm{exact}\|_{L^\infty([0,1])}$ for the deterministic Caputo linear test problem $\DD y(t) = -y(t)$ ($y_0 = 1.0$) across polynomial degrees $\hat{m} \in \{2, 4, 8, 16\}$ and fractional orders $\alpha \in [0.60, 1.00]$.}
     \label{tab:exp1_deterministic_abs_error}
     \begin{adjustbox}{max width=\textwidth}
     \begin{tabular}{cccccc}
     \toprule
     $\hat{m}$ & $\alpha = 0.60$ & $\alpha = 0.70$ & $\alpha = 0.80$ & $\alpha = 0.90$ & $\alpha = 1.00$ \\
     \midrule
-    $2$  & $1.4320 \times 10^{-2}$ & $1.0424 \times 10^{-2}$ & $7.4307 \times 10^{-3}$ & $5.1727 \times 10^{-3}$ & $3.5124 \times 10^{-3}$ \\
-    $4$  & $2.2800 \times 10^{-4}$ & $1.1378 \times 10^{-4}$ & $5.4167 \times 10^{-5}$ & $2.4487 \times 10^{-5}$ & $1.0507 \times 10^{-5}$ \\
-    $8$  & $1.9424 \times 10^{-8}$ & $3.6581 \times 10^{-9}$ & $6.2787 \times 10^{-10}$ & $9.6227 \times 10^{-11}$ & $1.3202 \times 10^{-11}$ \\
-    $16$ & $6.1062 \times 10^{-15}$ & $6.3283 \times 10^{-15}$ & $3.1086 \times 10^{-15}$ & $1.6098 \times 10^{-15}$ & $2.9976 \times 10^{-15}$ \\
+    $2$  & $9.8626 \times 10^{-3}$ & $8.1415 \times 10^{-3}$ & $6.5207 \times 10^{-3}$ & $5.1967 \times 10^{-3}$ & $4.1814 \times 10^{-3}$ \\
+    $4$  & $1.5245 \times 10^{-4}$ & $8.8400 \times 10^{-5}$ & $4.7996 \times 10^{-5}$ & $2.4403 \times 10^{-5}$ & $1.1722 \times 10^{-5}$ \\
+    $8$  & $1.1895 \times 10^{-8}$ & $2.7437 \times 10^{-9}$ & $5.4588 \times 10^{-10}$ & $9.4856 \times 10^{-11}$ & $1.4541 \times 10^{-11}$ \\
+    $16$ & $3.6637 \times 10^{-15}$ & $1.2546 \times 10^{-14}$ & $4.4409 \times 10^{-15}$ & $2.8866 \times 10^{-15}$ & $3.8858 \times 10^{-15}$ \\
     \bottomrule
     \end{tabular}
     \end{adjustbox}
@@ -134,36 +140,36 @@ We first consider the general linear Caputo fractional stochastic differential e
     \centering
     \begin{minipage}[t]{0.48\textwidth}
     \centering
-    \caption{[CAPTION NEEDED, $\alpha = 1$]}
+    \caption{Trajectory errors $\mathcal E_\infty$ and $\mathcal E_2$ for the Ornstein--Uhlenbeck process at $\alpha = 1.0$ across degrees $\hat{m}$ ($R = 500$ sample paths, $N^* = 65{,}536$).}
     \label{tab:exp2_ou_stochastic_mse}
     \begin{tabular}{ccc}
     \toprule
-    $\hat{m}$ & $\sup_{t \in [0, 1]} \mathrm{MSE}(t)$ & $L_2 \ \mathrm{MSE}$ \\
+    $\hat{m}$ & $\mathcal E_\infty$ & $\mathcal E_2$ \\
     \midrule
-    $2$  & $1.9643 \times 10^{-3}$ & $9.7086 \times 10^{-4}$ \\
-    $4$  & $1.1841 \times 10^{-3}$ & $5.7066 \times 10^{-4}$ \\
-    $8$  & $6.3273 \times 10^{-4}$ & $3.1578 \times 10^{-4}$ \\
-    $16$ & $3.4641 \times 10^{-4}$ & $1.6863 \times 10^{-4}$ \\
-    $24$ & $2.2438 \times 10^{-4}$ & $1.1429 \times 10^{-4}$ \\
-    $32$ & $1.7406 \times 10^{-4}$ & $8.6901 \times 10^{-5}$ \\
+    $2$  & $2.2187 \times 10^{-3}$ & $1.1400 \times 10^{-3}$ \\
+    $4$  & $1.1690 \times 10^{-3}$ & $6.0025 \times 10^{-4}$ \\
+    $8$  & $6.4942 \times 10^{-4}$ & $3.2264 \times 10^{-4}$ \\
+    $16$ & $3.2136 \times 10^{-4}$ & $1.6873 \times 10^{-4}$ \\
+    $24$ & $2.1577 \times 10^{-4}$ & $1.1367 \times 10^{-4}$ \\
+    $32$ & $1.5991 \times 10^{-4}$ & $8.5898 \times 10^{-5}$ \\
     \bottomrule
     \end{tabular}
     \end{minipage}
     \hfill
     \begin{minipage}[t]{0.48\textwidth}
     \centering
-    \caption{[CAPTION NEEDED, $\hat m = 32$]}
+    \caption{Discrete $L_2$ and $L_\infty$ errors of the Monte Carlo empirical mean trajectory $\bar{y}_R(t)$ against the theoretical expectation $\EE[y(t)] = y_0 E_\alpha(-\theta t^\alpha)$ for the Ornstein--Uhlenbeck process at $\hat{m} = 32$ ($R = 500$).}
     \label{tab:exp2_ou_mean_error}
     \begin{tabular}{ccc}
     \toprule
     $\alpha$ & Discrete $L_2$ & Discrete $L_\infty$ \\
     \midrule
-    $0.55$ & $2.8335 \times 10^{-4}$ & $1.6251 \times 10^{-2}$ \\
-    $0.65$ & $2.0994 \times 10^{-4}$ & $4.9593 \times 10^{-3}$ \\
-    $0.75$ & $1.8500 \times 10^{-4}$ & $4.1695 \times 10^{-3}$ \\
-    $0.85$ & $1.6913 \times 10^{-4}$ & $3.4723 \times 10^{-3}$ \\
-    $0.95$ & $1.5790 \times 10^{-4}$ & $2.8951 \times 10^{-3}$ \\
-    $1.00$ & $1.5356 \times 10^{-4}$ & $2.6614 \times 10^{-3}$ \\
+    $0.55$ & $7.5912 \times 10^{-4}$ & $1.9257 \times 10^{-2}$ \\
+    $0.65$ & $6.2975 \times 10^{-4}$ & $1.3957 \times 10^{-2}$ \\
+    $0.75$ & $5.2927 \times 10^{-4}$ & $1.0297 \times 10^{-2}$ \\
+    $0.85$ & $4.5794 \times 10^{-4}$ & $8.7411 \times 10^{-3}$ \\
+    $0.95$ & $4.0597 \times 10^{-4}$ & $7.3687 \times 10^{-3}$ \\
+    $1.00$ & $3.8494 \times 10^{-4}$ & $6.7491 \times 10^{-3}$ \\
     \bottomrule
     \end{tabular}
     \end{minipage}
@@ -172,7 +178,7 @@ We first consider the general linear Caputo fractional stochastic differential e
     \begin{figure}[htbp]
     \centering
     \includegraphics[width=0.75\textwidth]{figures/qq_ou_alpha085_alpha10_t1_combined.png}
-    \caption{[CAPTION NEEDED]}
+    \caption{Q--Q comparison of MLDNN and paired benchmark terminal quantiles for the Ornstein--Uhlenbeck process at $\alpha = 0.85$ and $\alpha = 1.00$ ($R = 500$).}
     \label{fig:ou_qq_plots}
     \end{figure}
 \end{enumerate}
@@ -190,36 +196,36 @@ We set the drift coefficient $\mu = 0.3$, volatility $\sigma = 0.15$, and initia
 \centering
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\caption{[CAPTION NEEDED, $\alpha = 1$]}
+\caption{Trajectory errors $\mathcal E_\infty$ and $\mathcal E_2$ for Geometric Brownian Motion at $\alpha = 1.0$ across degrees $\hat{m}$ ($R = 500, \mu = 0.3, \sigma = 0.15$).}
 \label{tab:exp3_gbm_stochastic_mse}
 \begin{tabular}{ccc}
 \toprule
-$\hat{m}$ & $\sup_{t \in [0, 1]} \mathrm{MSE}(t)$ & $L_2 \ \mathrm{MSE}$ \\
+$\hat{m}$ & $\mathcal E_\infty$ & $\mathcal E_2$ \\
 \midrule
-$2$  & $3.0846 \times 10^{-3}$ & $1.3667 \times 10^{-3}$ \\
-$4$  & $1.8859 \times 10^{-3}$ & $8.0119 \times 10^{-4}$ \\
-$8$  & $9.8984 \times 10^{-4}$ & $4.4242 \times 10^{-4}$ \\
-$16$ & $5.3327 \times 10^{-4}$ & $2.3599 \times 10^{-4}$ \\
-$24$ & $3.5775 \times 10^{-4}$ & $1.5995 \times 10^{-4}$ \\
-$32$ & $2.8108 \times 10^{-4}$ & $1.2157 \times 10^{-4}$ \\
+$2$  & $3.5271 \times 10^{-3}$ & $1.5673 \times 10^{-3}$ \\
+$4$  & $1.9065 \times 10^{-3}$ & $8.2204 \times 10^{-4}$ \\
+$8$  & $1.0244 \times 10^{-3}$ & $4.4649 \times 10^{-4}$ \\
+$16$ & $5.3594 \times 10^{-4}$ & $2.3595 \times 10^{-4}$ \\
+$24$ & $3.5121 \times 10^{-4}$ & $1.5922 \times 10^{-4}$ \\
+$32$ & $2.5477 \times 10^{-4}$ & $1.2005 \times 10^{-4}$ \\
 \bottomrule
 \end{tabular}
 \end{minipage}
 \hfill
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\caption{[CAPTION NEEDED, $\hat m = 32$]}
+\caption{Discrete $L_2$ and $L_\infty$ errors of the Monte Carlo empirical mean trajectory $\bar{y}_R(t)$ against the theoretical expectation $\EE[y(t)] = y_0 E_\alpha(\mu t^\alpha)$ for Geometric Brownian Motion at $\hat{m} = 32$ ($R = 500$).}
 \label{tab:exp3_gbm_mean_error}
 \begin{tabular}{ccc}
 \toprule
 $\alpha$ & Discrete $L_2$ & Discrete $L_\infty$ \\
 \midrule
-$0.55$ & $4.8988 \times 10^{-3}$ & $8.3980 \times 10^{-2}$ \\
-$0.65$ & $4.1408 \times 10^{-3}$ & $6.6603 \times 10^{-2}$ \\
-$0.75$ & $2.4795 \times 10^{-3}$ & $3.8466 \times 10^{-2}$ \\
-$0.85$ & $1.4160 \times 10^{-3}$ & $2.0769 \times 10^{-2}$ \\
-$0.95$ & $7.9801 \times 10^{-4}$ & $1.0437 \times 10^{-2}$ \\
-$1.00$ & $1.8166 \times 10^{-4}$ & $3.0732 \times 10^{-3}$ \\
+$0.55$ & $1.5228 \times 10^{-3}$ & $3.2557 \times 10^{-2}$ \\
+$0.65$ & $9.4465 \times 10^{-4}$ & $1.6858 \times 10^{-2}$ \\
+$0.75$ & $7.1802 \times 10^{-4}$ & $1.3181 \times 10^{-2}$ \\
+$0.85$ & $5.9188 \times 10^{-4}$ & $1.0577 \times 10^{-2}$ \\
+$0.95$ & $5.0974 \times 10^{-4}$ & $8.8803 \times 10^{-3}$ \\
+$1.00$ & $4.7772 \times 10^{-4}$ & $8.3202 \times 10^{-3}$ \\
 \bottomrule
 \end{tabular}
 \end{minipage}
@@ -228,7 +234,7 @@ $1.00$ & $1.8166 \times 10^{-4}$ & $3.0732 \times 10^{-3}$ \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.75\textwidth]{figures/qq_gbm_alpha085_alpha10_t1_combined.png}
-\caption{[CAPTION NEEDED]}
+\caption{Q--Q comparison of MLDNN and paired benchmark terminal quantiles for Geometric Brownian Motion at $\alpha = 0.85$ and $\alpha = 1.00$ ($R = 500$).}
 \label{fig:gbm_qq_plots}
 \end{figure}
 \end{example}
@@ -245,36 +251,36 @@ We set the drift coefficient $\mu = 0.3$, volatility $\sigma = 0.15$, and initia
 \centering
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\caption{[CAPTION NEEDED, $\alpha = 1$]}
+\caption{Trajectory errors $\mathcal E_\infty$ and $\mathcal E_2$ for the fractional Cox--Ingersoll--Ross process at $\alpha = 1.0$ across degrees $\hat{m}$ ($R = 500$).}
 \label{tab:exp4_cir_stochastic_mse}
 \begin{tabular}{ccc}
 \toprule
-$\hat{m}$ & $\sup_{t \in [0, 1]} \mathrm{MSE}(t)$ & $L_2 \ \mathrm{MSE}$ \\
+$\hat{m}$ & $\mathcal E_\infty$ & $\mathcal E_2$ \\
 \midrule
-$2$  & $2.4058 \times 10^{-3}$ & $1.1510 \times 10^{-3}$ \\
-$4$  & $1.4840 \times 10^{-3}$ & $6.7729 \times 10^{-4}$ \\
-$8$  & $7.8199 \times 10^{-4}$ & $3.7605 \times 10^{-4}$ \\
-$16$ & $4.2631 \times 10^{-4}$ & $2.0235 \times 10^{-4}$ \\
-$24$ & $2.9159 \times 10^{-4}$ & $1.3821 \times 10^{-4}$ \\
-$32$ & $2.3200 \times 10^{-4}$ & $1.0591 \times 10^{-4}$ \\
+$2$  & $2.7967 \times 10^{-3}$ & $1.3263 \times 10^{-3}$ \\
+$4$  & $1.4714 \times 10^{-3}$ & $6.9550 \times 10^{-4}$ \\
+$8$  & $8.0378 \times 10^{-4}$ & $3.7617 \times 10^{-4}$ \\
+$16$ & $4.1002 \times 10^{-4}$ & $1.9773 \times 10^{-4}$ \\
+$24$ & $2.7185 \times 10^{-4}$ & $1.3332 \times 10^{-4}$ \\
+$32$ & $1.9953 \times 10^{-4}$ & $1.0066 \times 10^{-4}$ \\
 \bottomrule
 \end{tabular}
 \end{minipage}
 \hfill
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\caption{[CAPTION NEEDED, $\hat m = 32$]}
+\caption{Discrete $L_2$ and $L_\infty$ errors of $\bar{y}_R(t)$ against $\EE[y(t)]=y_0E_\alpha(\mu t^\alpha)$ for the Cox--Ingersoll--Ross process at $\hat{m} = 32$ ($R = 500$).}
 \label{tab:exp4_cir_mean_error}
 \begin{tabular}{ccc}
 \toprule
 $\alpha$ & Discrete $L_2$ & Discrete $L_\infty$ \\
 \midrule
-$0.55$ & $3.1147 \times 10^{-3}$ & $7.5609 \times 10^{-2}$ \\
-$0.65$ & $2.1317 \times 10^{-3}$ & $3.2015 \times 10^{-2}$ \\
-$0.75$ & $1.3500 \times 10^{-3}$ & $2.0408 \times 10^{-2}$ \\
-$0.85$ & $8.5316 \times 10^{-4}$ & $1.2675 \times 10^{-2}$ \\
-$0.95$ & $5.5322 \times 10^{-4}$ & $7.8574 \times 10^{-3}$ \\
-$1.00$ & $3.4053 \times 10^{-4}$ & $4.4925 \times 10^{-3}$ \\
+$0.55$ & $1.1303 \times 10^{-3}$ & $2.3104 \times 10^{-2}$ \\
+$0.65$ & $8.0597 \times 10^{-4}$ & $1.5762 \times 10^{-2}$ \\
+$0.75$ & $6.6087 \times 10^{-4}$ & $1.2378 \times 10^{-2}$ \\
+$0.85$ & $5.6340 \times 10^{-4}$ & $1.0080 \times 10^{-2}$ \\
+$0.95$ & $4.9563 \times 10^{-4}$ & $8.6225 \times 10^{-3}$ \\
+$1.00$ & $4.6851 \times 10^{-4}$ & $8.0977 \times 10^{-3}$ \\
 \bottomrule
 \end{tabular}
 \end{minipage}
@@ -283,7 +289,7 @@ $1.00$ & $3.4053 \times 10^{-4}$ & $4.4925 \times 10^{-3}$ \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.75\textwidth]{figures/qq_cir_alpha085_alpha10_t1_combined.png}
-\caption{[CAPTION NEEDED]}
+\caption{Q--Q comparison of MLDNN and paired benchmark terminal quantiles for the fractional Cox--Ingersoll--Ross process at $\alpha = 0.85$ and $\alpha = 1.00$ ($R = 500$).}
 \label{fig:cir_qq_plots}
 \end{figure}
 \end{example}
@@ -300,36 +306,36 @@ We set the drift coefficient $\mu = 0.3$, volatility $\sigma = 0.15$, and initia
 \centering
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\caption{[CAPTION NEEDED, $\alpha = 1$]}
+\caption{Trajectory errors $\mathcal E_\infty$ and $\mathcal E_2$ for the nonlinear trigonometric SDE at $\alpha = 1.0$ across degrees $\hat{m}$ ($R = 500$).}
 \label{tab:exp5_trig_stochastic_mse}
 \begin{tabular}{ccc}
 \toprule
-$\hat{m}$ & $\sup_{t \in [0, 1]} \mathrm{MSE}(t)$ & $L_2 \ \mathrm{MSE}$ \\
+$\hat{m}$ & $\mathcal E_\infty$ & $\mathcal E_2$ \\
 \midrule
-$2$  & $1.6572 \times 10^{-3}$ & $8.9942 \times 10^{-4}$ \\
-$4$  & $9.5818 \times 10^{-4}$ & $4.7372 \times 10^{-4}$ \\
-$8$  & $4.9196 \times 10^{-4}$ & $2.4917 \times 10^{-4}$ \\
-$16$ & $2.6362 \times 10^{-4}$ & $1.2991 \times 10^{-4}$ \\
-$24$ & $1.7625 \times 10^{-4}$ & $8.7649 \times 10^{-5}$ \\
-$32$ & $1.3843 \times 10^{-4}$ & $6.6553 \times 10^{-5}$ \\
+$2$  & $1.7584 \times 10^{-3}$ & $8.7293 \times 10^{-4}$ \\
+$4$  & $9.3449 \times 10^{-4}$ & $4.5973 \times 10^{-4}$ \\
+$8$  & $5.1089 \times 10^{-4}$ & $2.4818 \times 10^{-4}$ \\
+$16$ & $2.5909 \times 10^{-4}$ & $1.3029 \times 10^{-4}$ \\
+$24$ & $1.7210 \times 10^{-4}$ & $8.7857 \times 10^{-5}$ \\
+$32$ & $1.2657 \times 10^{-4}$ & $6.6382 \times 10^{-5}$ \\
 \bottomrule
 \end{tabular}
 \end{minipage}
 \hfill
 \begin{minipage}[t]{0.48\textwidth}
 \centering
-\caption{[CAPTION NEEDED, $\hat m = 32$]}
+\caption{Discrete $L_2$ and $L_\infty$ errors of the Monte Carlo empirical mean trajectory for the nonlinear trigonometric SDE at $\hat{m} = 32$ ($R = 500$).}
 \label{tab:exp5_trig_mean_error}
 \begin{tabular}{ccc}
 \toprule
 $\alpha$ & Discrete $L_2$ & Discrete $L_\infty$ \\
 \midrule
-$0.55$ & $9.8363 \times 10^{-4}$ & $1.6311 \times 10^{-2}$ \\
-$0.65$ & $9.3976 \times 10^{-4}$ & $1.3662 \times 10^{-2}$ \\
-$0.75$ & $6.0196 \times 10^{-4}$ & $8.8311 \times 10^{-3}$ \\
-$0.85$ & $3.7077 \times 10^{-4}$ & $5.4489 \times 10^{-3}$ \\
-$0.95$ & $2.1420 \times 10^{-4}$ & $3.0192 \times 10^{-3}$ \\
-$1.00$ & $1.0438 \times 10^{-5}$ & $3.7083 \times 10^{-4}$ \\
+$0.55$ & $4.8424 \times 10^{-4}$ & $1.3705 \times 10^{-2}$ \\
+$0.65$ & $2.5147 \times 10^{-4}$ & $8.2130 \times 10^{-3}$ \\
+$0.75$ & $1.3418 \times 10^{-4}$ & $4.6482 \times 10^{-3}$ \\
+$0.85$ & $7.5140 \times 10^{-5}$ & $2.6246 \times 10^{-3}$ \\
+$0.95$ & $4.3252 \times 10^{-5}$ & $1.4661 \times 10^{-3}$ \\
+$1.00$ & $3.2900 \times 10^{-5}$ & $1.0869 \times 10^{-3}$ \\
 \bottomrule
 \end{tabular}
 \end{minipage}
@@ -338,7 +344,7 @@ $1.00$ & $1.0438 \times 10^{-5}$ & $3.7083 \times 10^{-4}$ \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=0.75\textwidth]{figures/qq_trig_alpha085_alpha10_t1_combined.png}
-\caption{[CAPTION NEEDED]}
+\caption{Q--Q comparison of MLDNN and paired benchmark terminal quantiles for the nonlinear trigonometric SDE at $\alpha = 0.85$ and $\alpha = 1.00$ ($R = 500$).}
 \label{fig:trig_qq_plots}
 \end{figure}
 \end{example}

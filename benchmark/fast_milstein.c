@@ -368,6 +368,7 @@ void solve_caputo_trig_sde_c(
     double* y_out, int n_eval, const double* t_eval,
     int is_milstein, int num_threads
 ) {
+    (void)alpha;
     if (num_threads > MAX_PCORES) num_threads = MAX_PCORES;
     if (num_threads < 1) num_threads = 1;
     if (num_threads > n_paths) num_threads = n_paths;

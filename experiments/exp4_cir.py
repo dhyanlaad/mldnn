@@ -3,7 +3,7 @@ run_cir_mu03_sigma015_complete.py
 =================================
 Cox-Ingersoll-Ross (CIR) Process Experiment Suite (Corrected):
 D_t^alpha y(t) = mu * y(t) + sigma * sqrt(y(t)) * dW_t/dt, y(0) = 1.0
-Parameters: mu = 0.3, sigma = 0.15, y0 = 1.0, R = 5000 paths, N = 65,536 steps
+Parameters: mu = 0.3, sigma = 0.15, y0 = 1.0, R = 500 paths, N = 65,536 steps
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ import json
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import torch
 import scipy.special as sp
 import matplotlib.pyplot as plt
 
@@ -22,8 +21,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import config
-from solver.core_mldnn import brownian_paths, basis_eval, Blocks
-from solver.parallel import build_fubini_tensor
+from solver.core_mldnn import brownian_paths
+from solver.parallel import solve_nonlinear_fubini_batch
 from experiments.common import run_fast_fem, MODEL_CIR
 
 plt.rcParams.update({
@@ -47,103 +46,30 @@ def solve_cir_batched_torch(
     max_iter: int = 15,
     tol: float = 1e-8
 ) -> np.ndarray:
-    n_paths, n_steps = dB.shape
-    m1 = mhat + 1
-    B = Blocks(alpha, mhat, None, Nq)
-    
-    # 1. Fubini tensor contraction
-    M_tens, _ = build_fubini_tensor(alpha, mhat, n_steps)
-    M_t = torch.from_numpy(M_tens)
-    dB_t = torch.from_numpy(dB)
-    Xi_t = torch.matmul(dB_t, M_t.T)
-    
-    omega_inv_t = (2.0 * alpha * torch.arange(m1, dtype=torch.float64) + 1.0)
-    Xi_all = Xi_t.reshape(n_paths, m1, m1)
-    S_all = Xi_all * omega_inv_t[None, None, :]
-    
-    PhiT_t = torch.from_numpy(B.PhiT)
-    DetT_t = torch.from_numpy(B.DetT)
-    # Correct StoT = PhiT @ S^T
-    StoT_all = torch.matmul(PhiT_t.unsqueeze(0), S_all.transpose(1, 2))
-    
-    t_cheb_t = torch.from_numpy(B.t)
-    if np.isclose(alpha, 1.0):
-        c_alpha_t = torch.full_like(t_cheb_t, 0.5)
-    else:
-        c0 = sp.gamma(2.0 * alpha - 1.0) / (2.0 * (sp.gamma(alpha) ** 2))
-        c_alpha_t = c0 * torch.pow(torch.clamp(t_cheb_t, min=0.0), 2.0 * alpha - 1.0)
-        
-    c_alpha_np = c_alpha_t.numpy()
-    
-    # Linearized initial guess about y0
-    s0_0 = 0.5 * sigma * np.sqrt(y0)
-    s1_0 = 0.5 * sigma / np.sqrt(y0)
-    
-    b0_eff = -0.25 * (sigma ** 2) * c_alpha_np
-    b1_eff = np.full(Nq, mu)
-    
-    PhiT_batch = PhiT_t.unsqueeze(0).expand(n_paths, -1, -1)
-    DetT_batch = DetT_t.unsqueeze(0).expand(n_paths, -1, -1)
-    Zero_m1 = torch.zeros((n_paths, Nq, m1), dtype=torch.float64)
-    
-    J1 = torch.cat([PhiT_batch, -DetT_batch, -StoT_all], dim=2)
-    R2_0 = torch.cat([-torch.from_numpy(b1_eff).unsqueeze(-1) * PhiT_batch, PhiT_batch, Zero_m1], dim=2)
-    R3_0 = torch.cat([-s1_0 * PhiT_batch, Zero_m1, PhiT_batch], dim=2)
-    Amat0 = torch.cat([J1, R2_0, R3_0], dim=1)
-    
-    rhs0 = torch.from_numpy(np.concatenate([np.full(Nq, y0), b0_eff, np.full(Nq, s0_0)])).unsqueeze(0).expand(n_paths, -1)
-    
-    AtA0 = torch.bmm(Amat0.transpose(1, 2), Amat0)
-    reg_I = 1e-10 * torch.eye(3 * m1, dtype=torch.float64).unsqueeze(0)
-    Atb0 = torch.bmm(Amat0.transpose(1, 2), rhs0.unsqueeze(-1))
-    z = torch.linalg.solve(AtA0 + reg_I, Atb0).squeeze(-1)
-    
-    c_alpha_batch = c_alpha_t.unsqueeze(0)
-    
-    for it in range(max_iter):
-        c = z[:, :m1]
-        tb = z[:, m1:2*m1]
-        ts = z[:, 2*m1:]
-        
-        N = torch.matmul(c, PhiT_t.T)
-        N_clamped = torch.clamp(N, min=1e-8)
-        sqrt_N = torch.sqrt(N_clamped)
-        
-        s_val = sigma * sqrt_N
-        b_eff = mu * N - 0.25 * (sigma ** 2) * c_alpha_batch
-        
-        r1 = N - y0 - torch.matmul(tb, DetT_t.T) - torch.bmm(StoT_all, ts.unsqueeze(-1)).squeeze(-1)
-        r2 = torch.matmul(tb, PhiT_t.T) - b_eff
-        r3 = torch.matmul(ts, PhiT_t.T) - s_val
-        
-        F = torch.cat([r1, r2, r3], dim=1).unsqueeze(-1)
-        norm_F = torch.max(torch.norm(F.squeeze(-1), dim=1)).item()
-        if norm_F < tol:
-            break
-            
-        sp_val = 0.5 * sigma / sqrt_N
-        J2 = torch.cat([-mu * PhiT_batch, PhiT_batch, Zero_m1], dim=2)
-        J3 = torch.cat([-sp_val.unsqueeze(-1) * PhiT_batch, Zero_m1, PhiT_batch], dim=2)
-        J = torch.cat([J1, J2, J3], dim=1)
-        
-        JtJ = torch.bmm(J.transpose(1, 2), J)
-        JtF = torch.bmm(J.transpose(1, 2), -F)
-        dz = torch.linalg.solve(JtJ + reg_I, JtF).squeeze(-1)
-        z = z + dz
-        
-    c_final = z[:, :m1].numpy()
-    Phi_eval = basis_eval(alpha, mhat, t_eval)
-    return c_final @ Phi_eval
+    floor = 1e-8
+    positive = lambda y: np.maximum(y, floor)
+    bfun = lambda t, y: mu * y
+    bprime = lambda t, y: np.full_like(y, mu)
+    bprime2 = lambda t, y: np.zeros_like(y)
+    sfun = lambda t, y: sigma * np.sqrt(positive(y))
+    sprime = lambda t, y: 0.5 * sigma / np.sqrt(positive(y))
+    sprime2 = lambda t, y: -0.25 * sigma / np.power(positive(y), 1.5)
+    return solve_nonlinear_fubini_batch(
+        alpha, mhat, dB, y0,
+        bfun, bprime, bprime2, sfun, sprime, sprime2,
+        Nq=Nq, t_eval=t_eval, max_iter=max_iter, tol=tol,
+        correction="operator_trace",
+    )
 
 def main():
     mu = 0.3
     sigma = 0.15
     y0 = 1.0
-    n_paths = 5000
+    n_paths = 500
     n_steps = 65536
     t_eval = np.linspace(0.0, 1.0, 101)
     Nq = 64
-    mhat_values = [1, 2, 4, 8, 16, 24, 32, 40]
+    mhat_values = [2, 4, 8, 16, 24, 32]
     alphas_mean = [0.55, 0.65, 0.75, 0.85, 0.95, 1.00]
     
     out_dir = config.EXPORTS_DIR / "exp4_cir" / "mu_03_sigma_015"
@@ -166,7 +92,7 @@ def main():
     print("\n--- Computing Fine C fEM Benchmark (alpha = 1.0) ---")
     t0_fem = time.time()
     exact_eval_a10 = run_fast_fem(MODEL_CIR, 1.0, mu, 0.0, sigma, y0, dB, t_eval)
-    print(f">> Exact benchmark computed in {time.time() - t0_fem:.2f}s")
+    print(f">> High-resolution fEM benchmark computed in {time.time() - t0_fem:.2f}s")
     
     # 2. alpha = 1.0 Truncation Sweep
     print("\n--- Running CIR (alpha = 1.0) Truncation Sweep ---")
@@ -187,7 +113,7 @@ def main():
         diff = exact_eval_a10 - sol
         mse_t = np.mean(diff ** 2, axis=0)
         sup_mse = float(np.max(mse_t))
-        l2_mse = float(np.mean(mse_t))
+        l2_mse = float(np.trapezoid(mse_t, t_eval))
         sup_rmse = float(np.sqrt(sup_mse))
         l2_rmse = float(np.sqrt(l2_mse))
         
@@ -212,7 +138,7 @@ def main():
         
     # 3. Multi-Alpha Mean Error Analysis against Exact Mittag-Leffler Mean
     print("\n--- Running Multi-Alpha Mean Error Analysis (Mittag-Leffler Mean) ---")
-    mhat_mean_sweep = [2, 4, 8, 16, 24, 32]
+    mhat_mean_sweep = [32]
     disc_l2_dict = {a: {} for a in alphas_mean}
     disc_linf_dict = {a: {} for a in alphas_mean}
     
@@ -232,8 +158,8 @@ def main():
         for m in mhat_mean_sweep:
             sol_m = solve_cir_batched_torch(alpha, m, dB, y0, mu, sigma, max(Nq, m + 1), t_eval)
             num_mean = np.mean(sol_m, axis=0)
-            if m == 24:
-                cache_dict[f"num_mean_alpha_{alpha}_m24"] = num_mean
+            if m == 32:
+                cache_dict[f"num_mean_alpha_{alpha}_m32"] = num_mean
                 
             disc_l2 = float((1.0 / len(t_eval)) * np.sqrt(np.sum((num_mean - exact_mean) ** 2)))
             disc_linf = float(np.max(np.abs(num_mean - exact_mean)))
@@ -253,13 +179,13 @@ def main():
     for a in alphas_mean:
         m24_summary.append({
             "alpha": a,
-            "Discrete_L2 (m=24)": f"{disc_l2_dict[a][24]:.4e}",
-            "Discrete_Linf (m=24)": f"{disc_linf_dict[a][24]:.4e}"
+            "Discrete_L2 (m=32)": f"{disc_l2_dict[a][32]:.4e}",
+            "Discrete_Linf (m=32)": f"{disc_linf_dict[a][32]:.4e}"
         })
     df_m24 = pd.DataFrame(m24_summary)
     with open(out_dir / "mean_errors_table.md", "w") as f:
         f.write("# CIR Process Mean Error Analysis (mu = 0.3, sigma = 0.15)\n\n")
-        f.write("## Discrete Mean Errors for mhat = 24\n\n")
+        f.write("## Discrete Mean Errors for mhat = 32\n\n")
         f.write(df_m24.to_markdown(index=False) + "\n\n")
         f.write("## Full Discrete L2 Mean Error Grid\n\n")
         f.write(df_disc_l2.to_markdown() + "\n\n")
@@ -316,7 +242,7 @@ def main():
         
         b_mean, b_std = np.mean(bench), np.std(bench)
         m_mean, m_std = np.mean(sol), np.std(sol)
-        bench_lbl = "Milstein" if np.isclose(alpha, 1.0) else "fEM"
+        bench_lbl = "fEM"
         stats_text = (
             f"{bench_lbl}: $\\mu = {b_mean:.4f}$, $\\sigma = {b_std:.4f}$\n"
             f"MLDNN: $\\mu = {m_mean:.4f}$, $\\sigma = {m_std:.4f}$"

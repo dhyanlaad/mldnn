@@ -321,44 +321,179 @@ class Blocks:
         self.DetT = (self.t ** alpha)[:, None] * (self.PhiT @ A.T)  # rows t^a M^T A^T
         self.StoT = self.PhiT @ S.T if S is not None else np.zeros_like(self.DetT)
 
-def malliavin_trace_factor(alpha: float, t: np.ndarray, by: float = 0.0, order: int = 1) -> np.ndarray:
+def trace_coefficient(alpha: float) -> float:
+    """Leading-order Malliavin trace magnitude. Reduces to the classical
+    Stratonovich->Ito constant 1/2 at alpha = 1, so no special case is needed."""
+    return float(sgamma(2.0 * alpha - 1.0) / (2.0 * (sgamma(alpha) ** 2)))
+
+def malliavin_trace_factor(alpha: float, t: np.ndarray, by: float = 0.0, order: int = 1,
+                           correction: str = "constant") -> np.ndarray:
     """
-    Computes the Malliavin trace factor C_alpha(t, by).
-    order=0: Leading-order kernel impulse (0-th order approximation).
-    order=1: Method 1 (1st-order Neumann expansion including drift-memory coupling).
+    Computes the Malliavin trace factor C_alpha.
+    Default (correction="constant"): Unified time-independent constant C = trace_coefficient(alpha),
+    which equals exactly 0.5 at alpha = 1 without special casing.
+    Legacy (correction="legacy_t_power"): c0 * t^{2alpha - 1} (+ higher order terms).
     """
     t = np.asarray(t, dtype=float)
-    if np.isclose(alpha, 1.0):
-        return np.full_like(t, 0.5) if t.ndim > 0 else 0.5
-    
-    c0 = sgamma(2.0 * alpha - 1.0) / (2.0 * (sgamma(alpha) ** 2))
-    t_term0 = c0 * np.power(np.clip(t, 0.0, None), 2.0 * alpha - 1.0)
-    if order == 0:
-        return t_term0
-    elif order == 1:
-        c1 = sgamma(3.0 * alpha - 1.0) / (2.0 * sgamma(alpha) * sgamma(2.0 * alpha))
-        t_term1 = c1 * np.power(np.clip(t, 0.0, None), 3.0 * alpha - 1.0) * by
-        return t_term0 + t_term1
-    elif order == 2:
-        # Method 2: Mittag-Leffler resolvent
-        ml_series = np.zeros_like(t)
-        z = by * np.power(np.clip(t, 0.0, None), alpha)
-        for k in range(50):
-            term = (z ** k) / sgamma(alpha * (k + 1) + 1.0)
-            ml_series += term
-            if np.max(np.abs(term)) < 1e-16:
-                break
-        return t_term0 * sgamma(alpha + 1.0) * ml_series
+    c0 = trace_coefficient(alpha)
+    if correction == "none":
+        return np.zeros_like(t)
+    elif correction == "constant":
+        return np.full_like(t, c0) if t.ndim > 0 else c0
+    elif correction == "legacy_t_power":
+        t_term0 = c0 * np.power(np.clip(t, 0.0, None), 2.0 * alpha - 1.0)
+        if order == 0:
+            return t_term0
+        elif order == 1:
+            c1 = sgamma(3.0 * alpha - 1.0) / (2.0 * sgamma(alpha) * sgamma(2.0 * alpha))
+            t_term1 = c1 * np.power(np.clip(t, 0.0, None), 3.0 * alpha - 1.0) * by
+            return t_term0 + t_term1
+        elif order == 2:
+            # Method 2: Mittag-Leffler resolvent
+            ml_series = np.zeros_like(t)
+            z = by * np.power(np.clip(t, 0.0, None), alpha)
+            for k in range(50):
+                term = (z ** k) / sgamma(alpha * (k + 1) + 1.0)
+                ml_series += term
+                if np.max(np.abs(term)) < 1e-16:
+                    break
+            return t_term0 * sgamma(alpha + 1.0) * ml_series
+        else:
+            return t_term0
     else:
-        return t_term0
+        raise ValueError(f"Unknown correction type: {correction}")
+
+
+def _unit_interval_jacobi_rule(order: int, left_power: float = 0.0,
+                               right_power: float = 0.0) -> tuple[np.ndarray, np.ndarray]:
+    """Quadrature for int_0^1 x^left_power (1-x)^right_power f(x) dx."""
+    if order < 1:
+        raise ValueError("quadrature order must be positive")
+    z, w = roots_jacobi(order, right_power, left_power)
+    x = 0.5 * (z + 1.0)
+    w = w / (2.0 ** (left_power + right_power + 1.0))
+    return x, w
+
+
+def fubini_kernel_projection(alpha: float, mhat: int, s: np.ndarray,
+                              quadrature_order: int = 32) -> np.ndarray:
+    """Evaluate k_j^(alpha)(s) from the stochastic-Fubini representation.
+
+    Returns an array of shape (mhat + 1, len(s)).  The weak endpoint singularity is
+    included in a Gauss--Jacobi weight, so no clipped endpoint approximation is used.
+    """
+    s = np.atleast_1d(np.asarray(s, dtype=float))
+    if np.any((s < 0.0) | (s > 1.0)):
+        raise ValueError("s must lie in [0, 1]")
+    x, w = _unit_interval_jacobi_rule(
+        quadrature_order, left_power=alpha - 1.0, right_power=0.0
+    )
+    tau = s[:, None] + (1.0 - s[:, None]) * x[None, :]
+    vals = basis_eval(alpha, mhat, tau.ravel()).reshape(mhat + 1, s.size, x.size)
+    weighted = np.einsum("msq,q->ms", vals, w)
+    return weighted * ((1.0 - s) ** alpha / sgamma(alpha))[None, :]
+
+
+def prepare_operator_trace_quadrature(
+    alpha: float,
+    mhat: int,
+    collocation_t: np.ndarray,
+    trace_t: np.ndarray,
+    trace_quadrature_order: int = 32,
+    kernel_quadrature_order: int = 32,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    """Precompute path-independent factors for the finite-dimensional trace.
+
+    The returned tuple is (M(s), G(s), trace_weights, q), where the s points are grouped
+    by each requested trace time and q is the number of points per group.
+    """
+    collocation_t = np.asarray(collocation_t, dtype=float)
+    trace_t = np.asarray(trace_t, dtype=float)
+    x, w = _unit_interval_jacobi_rule(
+        trace_quadrature_order, left_power=0.0, right_power=alpha - 1.0
+    )
+    s = (trace_t[:, None] * x[None, :]).ravel()
+    M_s = basis_eval(alpha, mhat, s)
+    k_s = fubini_kernel_projection(
+        alpha, mhat, s, quadrature_order=kernel_quadrature_order
+    )
+    M_t = basis_eval(alpha, mhat, collocation_t)
+    omega_inv_M_t = (2.0 * alpha * np.arange(mhat + 1) + 1.0)[:, None] * M_t
+    G = omega_inv_M_t.T @ k_s
+    trace_weights = (
+        (trace_t ** alpha / sgamma(alpha))[:, None] * w[None, :]
+    )
+    return M_s, G, trace_weights, trace_quadrature_order
+
+
+def operator_trace_from_sensitivity(
+    alpha: float,
+    mhat: int,
+    collocation_t: np.ndarray,
+    trace_t: np.ndarray,
+    theta_sigma: np.ndarray,
+    jacobian_ome: np.ndarray,
+    residual_ome: np.ndarray,
+    hessian_inv: np.ndarray,
+    trace_quadrature_order: int = 32,
+    kernel_quadrature_order: int = 32,
+    prepared: tuple[np.ndarray, np.ndarray, np.ndarray, int] | None = None,
+) -> np.ndarray:
+    """Compute Trace_n from the exact least-squares normal-equation sensitivity.
+
+    ``jacobian_ome`` is the first residual block differentiated with respect to the full
+    parameter vector.  ``hessian_inv`` is the inverse exact normal-equation Jacobian;
+    for an affine residual it is (K.T @ K)^(-1), including any solver regularization.
+    """
+    m1 = mhat + 1
+    if prepared is None:
+        prepared = prepare_operator_trace_quadrature(
+            alpha, mhat, collocation_t, trace_t,
+            trace_quadrature_order, kernel_quadrature_order,
+        )
+    M_s, G, trace_weights, q = prepared
+    if jacobian_ome.shape[1] != 3 * m1:
+        raise ValueError("jacobian_ome has incompatible parameter dimension")
+    if theta_sigma.shape != (m1,):
+        raise ValueError("theta_sigma has incompatible dimension")
+
+    # D_s theta = sigma_hat H^{-1} J_OME^T g
+    #             + H^{-1} E_sigma^T M(s) <g, r_OME>.
+    response = hessian_inv @ jacobian_ome.T
+    response_sigma = response[2 * m1:3 * m1]
+    hessian_sigma_sigma = hessian_inv[2 * m1:3 * m1, 2 * m1:3 * m1]
+    sigma_hat = theta_sigma @ M_s
+    residual_contraction = np.asarray(residual_ome, dtype=float) @ G
+    D_c_sigma = (
+        (response_sigma @ G) * sigma_hat[None, :]
+        + (hessian_sigma_sigma @ M_s) * residual_contraction[None, :]
+    )
+    integrand = np.sum(D_c_sigma * M_s, axis=0)
+    grouped = integrand.reshape(len(np.asarray(trace_t)), q)
+    return np.sum(grouped * trace_weights, axis=1)
+
+
+def _solve_affine_system(Amat: np.ndarray, rhs: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    z, *_ = lstsq(Amat, rhs, lapack_driver="gelsd")
+    return z, Amat @ z - rhs
 
 def solve_affine(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
-                 lam_b: float = 1.0, lam_s: float = 1.0, trace_order: int = 1):
+                 lam_b: float = 1.0, lam_s: float = 1.0, trace_order: int = 1,
+                 correction: str = "operator_trace",
+                 trace_quadrature_order: int = 32,
+                 kernel_quadrature_order: int = 32,
+                 bc_weight: float = 10.0,
+                 return_trace: bool = False):
     """
     Exact least-squares solution of the total loss (Sec. 2.2) for
     b(t,y) = b0(t) + b1*y,  sigma(t,y) = s0(t) + s1*y,
-    with Method 1 Malliavin trace correction for Ito convergence.
-    Returns (c, theta_b, theta_s, residual_norm).
+    ``correction="operator_trace"`` evaluates the accumulated finite-dimensional trace
+    from the exact affine normal-equation sensitivity and applies one frozen-trace
+    correction in the OME block.  The old local-coefficient formulas remain available
+    as ``constant`` and ``legacy_t_power`` for explicit ablations.
+
+    Returns (c, theta_b, theta_s, residual_norm), plus the collocation trace when
+    ``return_trace=True``.
     """
     B = Blocks(alpha, mhat, S, Nq)
     t, PhiT = B.t, B.PhiT
@@ -368,34 +503,79 @@ def solve_affine(alpha, mhat, S, y0, b0, b1, s0, s1, Nq=NQ,
     s0v = s0(t) if callable(s0) else np.full(Nq, float(s0))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
     
-    # Method 1 Malliavin Trace Correction (including drift coupling by = b1):
-    c_alpha_t = malliavin_trace_factor(alpha, t, by=b1, order=trace_order)
+    operator_mode = correction == "operator_trace"
+    local_correction = "none" if operator_mode else correction
+    c_alpha_t = malliavin_trace_factor(
+        alpha, t, by=b1, order=trace_order, correction=local_correction
+    )
     b0_eff = b0v - c_alpha_t * s0v * s1
     b1_eff = b1 - c_alpha_t * (s1 ** 2)
     
     R1 = np.hstack([PhiT, -B.DetT, -B.StoT])
     R2 = wb * np.hstack([-b1_eff[:, None] * PhiT, PhiT, Z])
     R3 = ws * np.hstack([-s1 * PhiT, Z, PhiT])
-    Amat = np.vstack([R1, R2, R3])
-    rhs = np.concatenate([np.full(Nq, y0), wb * b0_eff, ws * s0v])
-    z, res, rank, sv = lstsq(Amat, rhs, lapack_driver="gelsd")
-    r = Amat @ z - rhs
-    return z[:m1], z[m1:2 * m1], z[2 * m1:], float(np.linalg.norm(r) / np.sqrt(Nq))
+    phi0 = basis_eval(alpha, mhat, np.array([0.0]))[:, 0]
+    Rbc = bc_weight * np.concatenate([phi0, np.zeros(2 * m1)])[None, :]
+    Amat = np.vstack([R1, R2, R3, Rbc])
+    rhs = np.concatenate([np.full(Nq, y0), wb * b0_eff, ws * s0v, [bc_weight * y0]])
+    z, r = _solve_affine_system(Amat, rhs)
+    trace = np.zeros(Nq, dtype=float)
+    if operator_mode and not np.isclose(s1, 0.0):
+        normal_inv = np.linalg.pinv(Amat.T @ Amat, hermitian=True)
+        trace = operator_trace_from_sensitivity(
+            alpha=alpha,
+            mhat=mhat,
+            collocation_t=t,
+            trace_t=t,
+            theta_sigma=z[2 * m1:3 * m1],
+            jacobian_ome=R1,
+            residual_ome=r[:Nq],
+            hessian_inv=normal_inv,
+            trace_quadrature_order=trace_quadrature_order,
+            kernel_quadrature_order=kernel_quadrature_order,
+        )
+        # r_OME^corr = r_OME + Trace, hence K theta = d - Trace.
+        rhs_corrected = rhs.copy()
+        rhs_corrected[:Nq] -= trace
+        z, r = _solve_affine_system(Amat, rhs_corrected)
+
+    result = (
+        z[:m1], z[m1:2 * m1], z[2 * m1:],
+        float(np.linalg.norm(r) / np.sqrt(Nq)),
+    )
+    if return_trace:
+        return (*result, trace)
+    return result
 
 def solve_gauss_newton(alpha, mhat, S, y0, bfun, bprime, sfun, sprime,
                        Nq=NQ, lam_b=1.0, lam_s=1.0, tol=1e-13, maxit=60,
-                       z0=None, verbose=False, sprime2=None):
+                       z0=None, verbose=False, sprime2=None, bprime2=None,
+                       correction: str = "operator_trace",
+                       trace_quadrature_order: int = 32,
+                       kernel_quadrature_order: int = 32,
+                       bc_weight: float = 10.0,
+                       return_trace: bool = False):
     """
     Gauss-Newton (analytic Jacobian, damped) on the total loss of Sec. 2.2 for
-    general b(t,y), sigma(t,y) with Malliavin trace correction (ctx/correction_term.md).
-    bprime/sprime = partial_y derivatives.
+    general b(t,y), sigma(t,y) with Malliavin trace correction.
+    bprime/sprime are first y-derivatives.  Exact ``operator_trace`` mode also requires
+    bprime2/sprime2 so the normal-equation Hessian, rather than its Gauss--Newton
+    approximation, is differentiated.
     """
     B = Blocks(alpha, mhat, S, Nq)
     t, PhiT = B.t, B.PhiT
     m1 = mhat + 1
     Z = np.zeros((Nq, m1))
     wb, ws = np.sqrt(lam_b), np.sqrt(lam_s)
-    c_alpha_t = malliavin_trace_factor(alpha, t)
+    operator_mode = correction == "operator_trace"
+    if operator_mode and (bprime2 is None or sprime2 is None):
+        raise ValueError(
+            "operator_trace for nonlinear problems requires bprime2 and sprime2"
+        )
+    local_correction = "none" if operator_mode else correction
+    c_alpha_t = malliavin_trace_factor(alpha, t, correction=local_correction)
+    fixed_trace = np.zeros(Nq, dtype=float)
+    phi0 = basis_eval(alpha, mhat, np.array([0.0]))[:, 0]
 
     def residual(z):
         c, tb, ts = z[:m1], z[m1:2 * m1], z[2 * m1:]
@@ -404,10 +584,11 @@ def solve_gauss_newton(alpha, mhat, S, y0, bfun, bprime, sfun, sprime,
         sp_val = sprime(t, N)
         b_eff = bfun(t, N) - c_alpha_t * s_val * sp_val
         
-        r1 = N - y0 - B.DetT @ tb - B.StoT @ ts
+        r1 = N - y0 - B.DetT @ tb - B.StoT @ ts + fixed_trace
         r2 = wb * (PhiT @ tb - b_eff)
         r3 = ws * (PhiT @ ts - s_val)
-        return np.concatenate([r1, r2, r3]), N
+        rbc = np.array([bc_weight * (phi0 @ c - y0)])
+        return np.concatenate([r1, r2, r3, rbc]), N
 
     def jac(z, N):
         s_val = sfun(t, N)
@@ -418,7 +599,8 @@ def solve_gauss_newton(alpha, mhat, S, y0, bfun, bprime, sfun, sprime,
         J1 = np.hstack([PhiT, -B.DetT, -B.StoT])
         J2 = wb * np.hstack([-(bp_eff)[:, None] * PhiT, PhiT, Z])
         J3 = ws * np.hstack([-(sp_val)[:, None] * PhiT, Z, PhiT])
-        return np.vstack([J1, J2, J3])
+        Jbc = bc_weight * np.concatenate([phi0, np.zeros(2 * m1)])[None, :]
+        return np.vstack([J1, J2, J3, Jbc])
 
     if z0 is None:
         # initialise from the affine solve with b linearised about y0
@@ -426,28 +608,68 @@ def solve_gauss_newton(alpha, mhat, S, y0, bfun, bprime, sfun, sprime,
         s1_0 = float(sprime(np.array([0.0]), np.array([y0]))[0])
         b0f = lambda tt: bfun(tt, np.full_like(tt, y0)) - b1_0 * y0
         s0f = lambda tt: sfun(tt, np.full_like(tt, y0)) - s1_0 * y0
+        init_correction = "none" if operator_mode else correction
         c, tb, ts, _ = solve_affine(alpha, mhat, S, y0, b0f, b1_0, s0f, s1_0,
-                                    Nq, lam_b, lam_s)
+                                    Nq, lam_b, lam_s, correction=init_correction)
         z = np.concatenate([c, tb, ts])
     else:
         z = z0.copy()
-    r, N = residual(z)
-    for it in range(maxit):
-        J = jac(z, N)
-        dz, *_ = lstsq(J, -r, lapack_driver="gelsd")
-        step = 1.0
-        for _ in range(30):
-            r_new, N_new = residual(z + step * dz)
-            if np.linalg.norm(r_new) <= np.linalg.norm(r) * (1 + 1e-14) or step < 1e-8:
+
+    def optimize(z_start):
+        z_work = z_start.copy()
+        r_work, N_work = residual(z_work)
+        used = 0
+        for it in range(maxit):
+            J_work = jac(z_work, N_work)
+            dz, *_ = lstsq(J_work, -r_work, lapack_driver="gelsd")
+            step = 1.0
+            for _ in range(30):
+                r_new, N_new = residual(z_work + step * dz)
+                if np.linalg.norm(r_new) <= np.linalg.norm(r_work) * (1 + 1e-14) or step < 1e-8:
+                    break
+                step *= 0.5
+            z_work, r_work, N_work = z_work + step * dz, r_new, N_new
+            used = it + 1
+            if verbose:
+                print("  GN it %2d |r| = %.3e step %.2g" % (it, np.linalg.norm(r_work), step))
+            if np.linalg.norm(step * dz) < tol * max(1.0, np.linalg.norm(z_work)):
                 break
-            step *= 0.5
-        z, r, N = z + step * dz, r_new, N_new
-        if verbose:
-            print("  GN it %2d |r| = %.3e step %.2g" % (it, np.linalg.norm(r), step))
-        if np.linalg.norm(step * dz) < tol * max(1.0, np.linalg.norm(z)):
-            break
+        return z_work, r_work, N_work, used
+
+    z, r, N, iterations = optimize(z)
+    trace = np.zeros(Nq, dtype=float)
+    if operator_mode:
+        J_star = jac(z, N)
+        H = J_star.T @ J_star
+        r_b = r[Nq:2 * Nq]
+        r_s = r[2 * Nq:3 * Nq]
+        curvature_weight = (
+            -wb * r_b * np.asarray(bprime2(t, N), dtype=float)
+            -ws * r_s * np.asarray(sprime2(t, N), dtype=float)
+        )
+        H[:m1, :m1] += PhiT.T @ (curvature_weight[:, None] * PhiT)
+        sp_val = np.asarray(sprime(t, N), dtype=float)
+        if not np.all(sp_val == 0.0):
+            trace = operator_trace_from_sensitivity(
+                alpha=alpha,
+                mhat=mhat,
+                collocation_t=t,
+                trace_t=t,
+                theta_sigma=z[2 * m1:3 * m1],
+                jacobian_ome=J_star[:Nq],
+                residual_ome=r[:Nq],
+                hessian_inv=np.linalg.pinv(H, hermitian=True),
+                trace_quadrature_order=trace_quadrature_order,
+                kernel_quadrature_order=kernel_quadrature_order,
+            )
+            fixed_trace = trace
+            z, r, N, second_iterations = optimize(z)
+            iterations += second_iterations
     c, tb, ts = z[:m1], z[m1:2 * m1], z[2 * m1:]
-    return c, tb, ts, float(np.linalg.norm(r) / np.sqrt(Nq)), it + 1
+    result = (c, tb, ts, float(np.linalg.norm(r) / np.sqrt(Nq)), iterations)
+    if return_trace:
+        return (*result, trace)
+    return result
 
 
 def evaluate_solution(alpha, mhat, c, t):

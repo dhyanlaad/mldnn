@@ -70,6 +70,7 @@ class MLDNNSolver:
         self.theta_b: np.ndarray | None = None
         self.theta_s: np.ndarray | None = None
         self.residual_norm: float | None = None
+        self.malliavin_trace: np.ndarray | None = None
         self.n_iters: int = 0
 
     def solve_affine(
@@ -78,12 +79,13 @@ class MLDNNSolver:
         b1: float,
         s0,
         s1: float,
-        trace_order: int = 1
+        trace_order: int = 1,
+        correction: str = "operator_trace"
     ) -> MLDNNSolver:
         """Solve affine drift b(t, y) = b0(t) + b1*y and diffusion sigma(t, y) = s0(t) + s1*y
         via closed-form linear least squares with Malliavin trace correction.
         """
-        c, tb, ts, res = solve_affine(
+        c, tb, ts, res, trace = solve_affine(
             alpha=self.alpha,
             mhat=self.mhat,
             S=self.S,
@@ -95,12 +97,15 @@ class MLDNNSolver:
             Nq=self.Nq,
             lam_b=self.lam_b,
             lam_s=self.lam_s,
-            trace_order=trace_order
+            trace_order=trace_order,
+            correction=correction,
+            return_trace=True,
         )
         self.c = c
         self.theta_b = tb
         self.theta_s = ts
         self.residual_norm = res
+        self.malliavin_trace = trace
         self.n_iters = 1
         return self
 
@@ -111,9 +116,11 @@ class MLDNNSolver:
         sfun,
         sprime,
         sprime2=None,
+        bprime2=None,
         maxit: int = 50,
         tol: float = 1e-13,
-        verbose: bool = False
+        verbose: bool = False,
+        correction: str = "operator_trace"
     ) -> MLDNNSolver:
         """Solve general nonlinear CFSDE via analytic Gauss-Newton on basis coefficients c."""
         # solve_gauss_newton in core_mldnn returns (c, tb, ts, res)
@@ -132,12 +139,17 @@ class MLDNNSolver:
             tol=tol,
             maxit=maxit,
             verbose=verbose,
-            sprime2=sprime2
+            sprime2=sprime2,
+            bprime2=bprime2,
+            correction=correction,
+            return_trace=True,
         )
         self.c = out[0]
         self.theta_b = out[1]
         self.theta_s = out[2]
         self.residual_norm = out[3]
+        self.n_iters = out[4]
+        self.malliavin_trace = out[5]
         return self
 
     def evaluate(self, t: np.ndarray) -> np.ndarray:
