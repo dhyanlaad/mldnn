@@ -122,8 +122,10 @@ where $dB_t/dt$ denotes white noise. For the case of $\alpha = 1$, we recover a 
 \end{equation}
 We reformulate the formal CSIVP~\eqref{eq:csivp} into a mathematically rigorous stochastic Volterra integral equation (SVIE) and impose assumptions on the functions $b$, $\sigma$, and $y_0$ in \S~\ref{sec:well_posedness}.
 
+% Add remark for why \alpha > 1/2 is needed.
+
 \section{Preliminaries}
-In this section, we introduce the fractional operators, the M\"untz--Legendre polynomials, and the concepts of a physics-inspired neural network (PINN) and a functional link neural network (FLNN) as the machine learning frameworks we utilize.
+In this section, we introduce the fractional operators, the M\"untz--Legendre polynomials, and the concepts of a physics-informed neural network (PINN) and a functional link neural network (FLNN) as the machine learning frameworks we utilize.
 
 \begin{definition}
     Let $\alpha > 0$, $n = \lceil \alpha \rceil$, and $f \in \mathcal{AC}^n([0, 1])$. Let $\Gamma$ denote the gamma function. The \emph{left-sided Caputo fractional derivative} of order $\alpha$ of $f$ is
@@ -149,6 +151,14 @@ It is of interest to us that for $\alpha \in (1/2, 1]$ and $f \in \mathcal{AC}([
     \II (\DD f(t)) = f(t) - f(0),
 \end{equation}
 which we extend to stochastic processes satisfying the CSIVP~\eqref{eq:csivp}.
+
+\begin{remark}
+    For $\alpha > 1/2$, the fractional kernel satisfies
+    \begin{equation}
+        \int_0^t [(t - s)^{-\alpha}]^2 \dd{s} = \frac{t^{2\alpha-1}}{(2\alpha-1)\Gamma(\alpha)^2} < \infty,
+    \end{equation}
+    which is precisely the condition needed for the stochastic convolution against kernel to be well defined in $\mathcal L^2(\Omega)$. This inequality resurfaces in \S\ref{sec:malliavin} to justify the regularity of the fractional stochastic operational matrices.
+\end{remark}
 
 \subsection{Well-posedness of the model problem}\label{sec:well_posedness}
 We start by developing the necessary stochastic framework. Consider the probability space $(\Omega, \mathcal F, \PP)$ and filtration from \S~\ref{sec:model_problem}. For any $\mathcal F$-measurable real random variable $X : \Omega \to \mathbb R$, we define its mathematical expectation
@@ -203,7 +213,7 @@ The architecture of our machine learning framework is heavily dependent on the M
 \begin{definition}
     For a M\"untz sequence $\Lambda$, the $m$th degree M\"untz--Legendre polynomial on $[0, 1]$ is defined as
     \begin{equation}
-        M^{\Lambda}_m(t) = \sum_{k=0}^m \eta^{(m)}_k t^{\lambda_k}, \quad \eta^{(m)}_k = \prod_{j=0}^{n-1} (\lambda_j + \overline{\lambda_m} + 1) \prod_{\substack{j=0 \\ j \neq k}}^n \frac{1}{\lambda_k - \lambda_j}
+        M^{\Lambda}_m(t) = \sum_{k=0}^m \eta^{(m)}_k t^{\lambda_k}, \quad \eta^{(m)}_k = \prod_{j=0}^{m-1} (\lambda_j + \overline{\lambda_m} + 1) \prod_{\substack{j=0 \\ j \neq k}}^m \frac{1}{\lambda_k - \lambda_j}
     \end{equation} 
 \end{definition}
 Additionally, the polynomials possess the orthogonality property
@@ -336,7 +346,7 @@ As such, we may define the deterministic fractional operational matrix of integr
 \begin{equation}
     \mathbf P_\alpha(t) = t^{\alpha}\mathbf C \mathbf D_\alpha \mathbf C^{-1} \in \mathbb R^{(n+1) \times (n+1)}
 \end{equation}
-Forming the matrix $\mathbf C^{-1}$ through standard matrix inversion is numerically unstable due to the exponential growth of the condition number of the matrix $\mathbf C$. We firstly assemble the matrix $\mathbf C$ row-by-row using the three term Jacobi recurrence formula. Post-multiplying $\mathbf C$ by $\mathbf D_\alpha$ yields the scaled matrix $\mathbf C \mathbf D_\alpha = \tilde{\mathbf C}$, where the $k$th column of $\mathbf C$ is scaled by the $k$th diagonal entry of $\mathbf D_\alpha$. The time-independent factor $\mathbf C \mathbf D_\alpha \mathbf C^{-1}$ satisfies the linear matrix equation $(\mathbf C \mathbf D_\alpha \mathbf C^{-1}) \mathbf C = \tilde{\mathbf C}$. Since the matrix $\mathbf C$ is lower-triangular, this factor is strictly lower-triangular, and each row may be resolved via exact triangular back-substitution.
+Forming the matrix $\mathbf C^{-1}$ through standard matrix inversion is numerically unstable due to the exponential growth of the condition number of the matrix $\mathbf C$. We firstly assemble the matrix $\mathbf C$ row-by-row using the three term Jacobi recurrence formula. Post-multiplying $\mathbf C$ by $\mathbf D_\alpha$ yields the scaled matrix $\tilde{\mathbf C} = \mathbf C \mathbf D_\alpha$, where the $k$th column of $\mathbf C$ is scaled by the $k$th diagonal entry of $\mathbf D_\alpha$. The time-independent factor $\mathbf C \mathbf D_\alpha \mathbf C^{-1}$ satisfies the linear matrix equation $(\mathbf C \mathbf D_\alpha \mathbf C^{-1}) \mathbf C = \tilde{\mathbf C}$. Since the matrix $\mathbf C$ is lower-triangular, this factor is lower-triangular with non-zero diagonal entries, and each row may be resolved via exact triangular back-substitution.
 
 \subsubsection{Stochastic operational matrix}
 Consider the It\^o integral of an arbitrary M\"untz--Legendre polynomial $M_i^\Lambda(t)$:
@@ -357,7 +367,7 @@ Taking the $\mathcal L^2(0, 1)$ inner product of both sides with respect to an a
 \end{equation}
 By the orthogonality of the M\"untz--Legendre polynomials \eqref{eq:muntz_orthogonality}, we have
 \begin{equation}
-    (\mathbf S_\alpha)_{ik} = \frac{\ip{I_i, M_k^\Lambda}_{\mathcal L^2(0,1)}}{\norm{M_k^\Lambda}_{\mathcal L^2(0,1)}} = (2k\alpha + 1)\int_0^1 I_i(s)M_k^\Lambda(s)\dd{s}.
+      (\mathbf S_\alpha)_{ik} = \frac{\ip{I_i, M_k^\Lambda}_{\mathcal L^2(0, 1)}}{\norm{M_k^\Lambda}_{\mathcal L^2(0, 1)}} = (2k\alpha+1)\int_0^1 I_i(s)M_k^\Lambda(s)\dd{s}.
 \end{equation}
 We may represent this compactly in matrix form. The stochastic fractional operational matrix of integration is given by
 \begin{equation}
@@ -393,10 +403,8 @@ Since the coefficients of the Brownian increments are deterministic, they are co
 \begin{equation}
     \Delta \mathbf B \mathbf T^\top \in \mathbb R^{R \times (n+1)^2}.
 \end{equation}
-\subsection{Malliavin trace correction}\label{sec:malliavin}
-% A critical challenge in global polynomial spectral methods for fractional stochastic differential equations is the discretization of multiplicative noise. The coefficient vector $\mathbf{c}_\sigma$ solving the operational matrix equation~\eqref{eq:ome} is fixed by enforcing the spectral approximations simultaneously across the nodal set $T_c \subset [0,1]$, meaning each component depends on the Brownian path over the entire interval rather than on $\mathcal{F}_t$ alone. Because the algebraic system computes $\mathbf{c}_\sigma^\top \mathbf{S}_\alpha \mathbf{M}_n^\Lambda(t)$ by multiplying this non-adapted random coefficient vector directly through the matrix of deterministic stochastic integrals $\mathbf{S}_\alpha$, the multiplication formula for the Skorokhod integral \cite{NualartPardoux1988} shows that this product yields the Stratonovich-type integral of $\sigma(t, y_n(t))$, rather than its It\^o or Skorokhod integral. The two formulations differ by a Malliavin trace anomaly: the integral of the diagonal Malliavin derivative of $\mathbf{c}_\sigma$ against the fractional kernel \cite{CassLim2019}. While these integrals coincide for additive noise, in the multiplicative of multiplicative noise, this trace must be explicitly subtracted from the drift. In this section, we derive this trace in closed form for the M\"untz--Legendre projection~\eqref{eq:phy_approx}. We establish that the corrected scheme converges to the exact It\^o solution of the SVIE~\eqref{eq:svie}, provided the trace vanishes as $n \to \infty$ for  a.e. $t \in T$.
-\lipsum[13]
-\subsection{M\"untz--Legendre functional link neural network}
+
+ \subsection{M\"untz--Legendre functional link neural network}
 % Include algorithm and graphic of architecture.
 We now examine the architecture of the ML-PIFLNN. We adopt a single-layer functional link architecture that enhances the input space through a fractional feature map:
 \begin{subequations}
@@ -453,7 +461,7 @@ The loss function \eqref{eq:loss} simplifies to an exact linear least-squares pr
     \min_{\boldsymbol \theta} \norm{\mathbf K \boldsymbol \theta - \mathbf d}_2^2
 \end{equation}
 where the block system matrix $\mathbf K \in \mathbb R^{3N_c \times 3(n+1)}$ and target vector $\mathbf d \in \mathbb R^{3N_c}$ are assembled as
-\begin{equation}
+\begin{equation}\label{eq:block_system}
     \mathbf K =
     \begin{bmatrix}
         \boldsymbol \Phi & -\boldsymbol \Phi_P & -\boldsymbol \Phi_S \\
@@ -479,7 +487,11 @@ We solve for $\boldsymbol \theta$ via damped Gauss--Newton updates:
     \boldsymbol \theta^{(k+1)} = \boldsymbol \theta^{(k)} - \xi_k (\nabla_{\boldsymbol \theta} \mathbf r(\boldsymbol \theta^{(k)}))^+ \mathbf r(\boldsymbol \theta^{(k)}),
 \end{equation}
 where $\nabla_{\boldsymbol \theta} \mathbf r(\boldsymbol \theta) \in \mathbb R^{3N_c \times 3(n+1)}$ is the analytic Jacobian, and $\xi_k \in (0, 1]$ is a line-search dampening parameter. The iterations are initialized from the affine solution linearized around $y_0$.
-\section{Convergence analysis}
+
+\subsection{Malliavin trace correction}
+\lipsum[13]
+
+\section{Convergence analysis}\label{sec:convergence}
 \lipsum[8]
 
 \subsection{Preliminaries}
@@ -488,7 +500,7 @@ where $\nabla_{\boldsymbol \theta} \mathbf r(\boldsymbol \theta) \in \mathbb R^{
 \subsection{Proof of convergence}
 \lipsum[12]
 
-\section{Numerical experiments}
+\section{Numerical experiments}\label{sec:numerics}
 \lipsum[9]
 
 \printbibliography
