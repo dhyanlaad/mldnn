@@ -377,10 +377,17 @@ def _unit_interval_jacobi_rule(order: int, left_power: float = 0.0,
 
 def fubini_kernel_projection(alpha: float, mhat: int, s: np.ndarray,
                               quadrature_order: int = 32) -> np.ndarray:
-    """Evaluate k_j^(alpha)(s) from the stochastic-Fubini representation.
+    """Evaluate k_j^(α)(s) = ∫_s^1 (t-s)^(α-1)/Γ(α) M_j(t) dt (Fubini kernel projection).
 
-    Returns an array of shape (mhat + 1, len(s)).  The weak endpoint singularity is
-    included in a Gauss--Jacobi weight, so no clipped endpoint approximation is used.
+    Returns an array of shape (mhat + 1, len(s)).  Computes the residual kernel projection
+    from the stochastic Fubini representation, used in the trace quadrature formula.
+
+    The weak endpoint singularity at t=s is handled by Gauss-Jacobi quadrature with weight
+    (1-x)^(α-1), automatically handling the (t-s)^(α-1) singularity via change of variables.
+    No clipped endpoint approximation is used; the singularity is exactly integrated.
+
+    Used in: prepare_operator_trace_quadrature() to construct G matrix
+    Theory: Manuscript Equation 4.20 (Fubini kernel definition)
     """
     s = np.atleast_1d(np.asarray(s, dtype=float))
     if np.any((s < 0.0) | (s > 1.0)):
@@ -404,8 +411,27 @@ def prepare_operator_trace_quadrature(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     """Precompute path-independent factors for the finite-dimensional trace.
 
-    The returned tuple is (M(s), G(s), trace_weights, q), where the s points are grouped
-    by each requested trace time and q is the number of points per group.
+    Implements numerical quadrature for τ_n(t_i) = ∫_0^{t_i} K_α(t_i,s) (D_s c*_σ)^T M_n(s) ds
+    using change of variables s = t_i·x and Jacobi quadrature for the weak singularity.
+
+    Returns (M_s, G, trace_weights, q) where:
+      • M_s: Müntz-Legendre basis M_j(s_l) at quadrature points s_l = t_i·x_l
+             shape (m+1, Ns), where Ns = len(trace_t) * q
+      • G: Un-integrated kernel-basis contractions, NOT the full kernel integral
+           G[i,l] = Σ_j (2αj+1) M_j(t_i) k_j^(α)(s_l)  where
+           k_j^(α)(s) = ∫_s^1 (t-s)^(α-1)/Γ(α) M_j(t) dt  [Fubini projection]
+           shape (Nq, Ns). Integration happens via trace_weights, not within G.
+      • trace_weights: Numerical quadrature weights that encode the kernel singularity
+                       trace_weights[m,q] = (t_m)^α/Γ(α) · w_q
+                       where w_q are Jacobi weights for ∫_0^1 (1-x)^(α-1) dx
+                       Handles both the kernel factor (t_i - s)^(α-1)/Γ(α) and weak singularity.
+      • q: Number of quadrature points per trace time (= trace_quadrature_order)
+
+    The change of variables s = t_i·x converts K_α(t_i,s) = (t_i-s)^(α-1)/Γ(α) to
+    t_i^α/Γ(α) · (1-x)^(α-1), whose singularity (1-x)^(α-1) is handled by Jacobi weights.
+
+    The actual trace computation is: τ_n(t_i) = Σ_q integrand(s_q) · trace_weights[i,q]
+                                                = ∫_0^{t_i} K_α(t_i,s) · (D_s c*_σ)^T M_n(s) ds
     """
     collocation_t = np.asarray(collocation_t, dtype=float)
     trace_t = np.asarray(trace_t, dtype=float)
@@ -457,8 +483,17 @@ def operator_trace_from_sensitivity(
     if theta_sigma.shape != (m1,):
         raise ValueError("theta_sigma has incompatible dimension")
 
-    # D_s theta = sigma_hat H^{-1} J_OME^T g
-    #             + H^{-1} E_sigma^T M(s) <g, r_OME>.
+    # Sensitivity D_s c*_σ via implicit differentiation (Proposition 4.7, line 654):
+    #   D_s c*_σ = -H^{-1} [(D_s J)^T r + J^T D_s^{exp} r]
+    #
+    # Two-term formula (lines 467-470):
+    #   (1) (H^{-1})_σ· @ G · σ̂(s)                    [shape: (m1, Ns)]
+    #   (2) H_σσ^{-1} @ M(s) · ⟨g, r*_OME⟩            [shape: (m1, Ns)]
+    # where:
+    #   H = normal-equation Hessian at optimum
+    #   G[i,l] = Σ_j (Ω·M_t)[j,i] k_j(s_l)            [un-integrated: shape (Nq, Ns)]
+    #   σ̂(s) = c*_σ^T M(s)                            [shape: (Ns,)]
+    #   ⟨g, r*_OME⟩[l] = Σ_i r*_i G[i,l]             [residual contraction: shape (Ns,)]
     response = hessian_inv @ jacobian_ome.T
     response_sigma = response[2 * m1:3 * m1]
     hessian_sigma_sigma = hessian_inv[2 * m1:3 * m1, 2 * m1:3 * m1]
