@@ -3,11 +3,14 @@ fcmp.py
 =======
 Filtered frozen-coefficient multipass (FCMP) solver.
 
-This is the variant of the MLDNN scheme covered by the convergence theorem in
-``agent/docs/notes/fcmp-convergence-proof.md`` (Theorem 1, alpha in (1/2, 1]).
-It keeps the Muntz feature space, the deterministic operational matrix ``A``
-(``get_A``) and the stochastic Fubini tensor (``build_fubini_tensor``), and
-changes three things relative to ``solve_nonlinear_fubini_batch``:
+This is the MLDNN solver.  For alpha in (1/2, 1] and drift/diffusion that are
+globally Lipschitz with bounded derivatives in y, it converges in L^p(Omega x
+[0, 1]) to the pass-count Picard iterate of the Volterra SDE as mhat -> infinity,
+and those iterates converge geometrically to the solution (the FCMP convergence
+theorem).  It keeps the Muntz feature space, the deterministic operational
+matrix ``A`` (``get_A``) and the stochastic Fubini tensor
+(``build_fubini_tensor``), and changes three things relative to a single joint
+least-squares fit of the state, drift and diffusion coefficients:
 
 1. the diffusion coefficients are *lagged*: pass k uses theta^(k-1), fitted
    from the previous state, so the only per-pass solve is the deterministic
@@ -21,7 +24,7 @@ changes three things relative to ``solve_nonlinear_fubini_batch``:
 The output is pinned to y(0) = y0 by the L^2-orthogonal projection onto
 {v in V_n : v(0) = y0}, i.e. y + (y0 - y(0)) K_n(., 0) / K_n(0, 0) with K_n
 the reproducing kernel of V_n.  This projection is non-expansive, so the
-convergence theorem is unaffected (proof note, Section 8).
+convergence theorem is unaffected.
 
 Scheme, in orthonormal coefficients phi_j = sqrt(2 j alpha + 1) M_j:
 
@@ -334,7 +337,7 @@ def solve_affine_batch(alpha: float, mhat: int, dB: np.ndarray, y0: float,
     """FCMP for b = b0 + b1 y, sigma = s0 + s1 y (b0 constant or numpy callable of t).
 
     Additive noise (s1 = 0) needs one pass (every pass is identical); otherwise
-    three.  Unfiltered FCMP is covered by Theorem 1 for affine coefficients at any
+    three.  Unfiltered FCMP is covered by the convergence theorem for affine coefficients at any
     pass count.
     """
     dB = np.atleast_2d(np.asarray(dB, dtype=float))
@@ -352,7 +355,7 @@ def solve_nonlinear_batch(alpha: float, mhat: int, dB: np.ndarray, y0: float,
                           filt: str = "none", chunk_size: int | None = None, **kw) -> np.ndarray:
     """FCMP for general b(t, y), sigma(t, y) given as torch callables.
 
-    Default: two unfiltered passes, the largest pass count Theorem 1 covers
+    Default: two unfiltered passes, the largest pass count the convergence theorem covers
     without the filter for C^1 coefficients.
     """
     dB = np.atleast_2d(np.asarray(dB, dtype=float))

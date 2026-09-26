@@ -2,7 +2,7 @@
 test_fcmp.py
 ============
 Checks for the FCMP solver (solver/fcmp.py) against the properties used in the
-convergence proof (agent/docs/notes/fcmp-convergence-proof.md):
+FCMP convergence proof:
 1. D is the exact Galerkin matrix of I^alpha; the filter has the required shape.
 2. Additive noise: the trace vanishes and every pass gives the same state.
 3. Skorokhod centring: E[G^T theta - tau] = 0 for exact Gaussian G (Lemma 0).

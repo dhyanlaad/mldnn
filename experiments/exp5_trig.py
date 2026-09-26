@@ -45,7 +45,7 @@ def solve_trig_batched_torch(
     sigma: float,
     t_eval: np.ndarray,
 ) -> np.ndarray:
-    # two unfiltered FCMP passes: the pass count Theorem 1 covers without the filter
+    # two unfiltered FCMP passes: the pass count the FCMP convergence theorem covers without the filter
     return solve_nonlinear_batch(
         alpha, mhat, dB, y0,
         lambda t, y: mu * torch.cos(y), lambda t, y: sigma * torch.sin(y),
