@@ -33,3 +33,6 @@ exports/*
 /tex/main/cache/
 /tex/main/figures/
 /final_img/
+
+# Local research workspace (drafts, notes, studies)
+/agent/
