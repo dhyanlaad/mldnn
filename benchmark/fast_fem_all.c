@@ -1,15 +1,13 @@
 /*
  * fast_fem_all.c -- Fractional Euler-Maruyama solver
- * Aggressively optimized for Apple M3 Ultra (ARM64 NEON)
+ * Direct quadratic-history convolution, with ARM64 NEON or scalar dot products.
  *
  * Optimizations:
  *   1. Pre-reversed kernel arrays -> all-forward memory strides
  *   2. FUSED dual dot product in NEON (Bh*wdet + Sh*ksto in single pass)
  *   3. 4x float64x2_t accumulators -> saturate 4-cycle FMA pipeline
- *   4. Incremental convolution: reuse sum from step k for step k+1
- *   5. Precomputed t_eval interpolation outside path loop
- *   6. Thread count capped at P-cores (20) to avoid E-core stall
- *   7. Compiled with -O3 -mcpu=native -ffast-math -ffp-contract=fast
+ *   4. Precomputed t_eval interpolation outside path loop
+ *   5. Thread count capped at 20
  */
 
 #include <math.h>
@@ -17,13 +15,14 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdio.h>
+#if defined(__aarch64__)
 #include <arm_neon.h>
+#endif
 
 #define MODEL_OU 1
 #define MODEL_GBM 2
 #define MODEL_LOGISTIC 3
 #define MODEL_NONLINEAR 4
-#define MODEL_CIR 5
 #define MODEL_TRIGONOMETRIC 6
 
 /* Maximum threads = P-cores only on M3 Ultra */
@@ -67,8 +66,6 @@ static inline double eval_b(int model_type, double y, double p1, double p2, doub
         case MODEL_NONLINEAR:
             // 3.0 * p1 * cbrt(y)
             return 3.0 * p1 * cbrt(y > 0.0 ? y : 0.0);
-        case MODEL_CIR:
-            return p1 * y;
         case MODEL_TRIGONOMETRIC:
             // b(y) = mu * cos(y), p1 = mu
             return p1 * cos(y);
@@ -95,8 +92,6 @@ static inline double eval_s(int model_type, double y, double p1, double p2, doub
             double c = cbrt(y > 0.0 ? y : 0.0);
             return 3.0 * p3 * c * c;
         }
-        case MODEL_CIR:
-            return p3 * sqrt(y > 0.0 ? y : 0.0);
         case MODEL_TRIGONOMETRIC:
             // sigma(y) = sigma * sin(y), p3 = sigma
             return p3 * sin(y);
@@ -117,6 +112,7 @@ static inline double fused_dot4_neon(
     const double* __restrict__ c, const double* __restrict__ d,
     int len)
 {
+#if defined(__aarch64__)
     float64x2_t acc0 = vdupq_n_f64(0.0);
     float64x2_t acc1 = vdupq_n_f64(0.0);
     float64x2_t acc2 = vdupq_n_f64(0.0);
@@ -167,6 +163,13 @@ static inline double fused_dot4_neon(
         sum += a[i] * b[i] + c[i] * d[i];
     }
     return sum;
+#else
+    double sum = 0.0;
+    for (int i = 0; i < len; i++) {
+        sum += a[i] * b[i] + c[i] * d[i];
+    }
+    return sum;
+#endif
 }
 
 void* worker_fem_generic(void* ptr) {

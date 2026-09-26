@@ -32,7 +32,7 @@ plt.rcParams.update({
 
 def qq_combined_plot(bench_a, sol_a, bench_b, sol_b, label_a, label_b,
                       bench_lbl_a, bench_lbl_b, process_name, save_path):
-    """Reproduces the side-by-side QQ plot code shared by exp2/exp3/exp4, with
+    """Reproduces the side-by-side QQ plot code shared by exp2/exp3, with
     titles removed and axis labels standardized across every QQ plot. Only the
     alpha value is annotated (no mu/sigma statistics), and the legend uses the
     manuscript's ML-PIFLNN / n notation."""
@@ -296,28 +296,6 @@ def regen_exp3():
 
 
 # ---------------------------------------------------------------------------
-# Experiment 4: Cox-Ingersoll-Ross (square-root diffusion)
-# ---------------------------------------------------------------------------
-def regen_exp4():
-    print("=" * 70)
-    print("Experiment 4: Cox-Ingersoll-Ross Process (from cache)")
-    print("=" * 70)
-    src = CACHE / "exp4_cir"
-    dst = OUT / "exp4_cir"
-    dst.mkdir(parents=True, exist_ok=True)
-
-    qq = np.load(src / "qq_raw_cache.npz")
-    qq_combined_plot(
-        bench_a=qq["exact_t1_a085"], sol_a=qq["mldnn_t1_a085"],
-        bench_b=qq["exact_t1_a10"], sol_b=qq["mldnn_t1_a10"],
-        label_a=0.85, label_b=1.00,
-        bench_lbl_a="fEM", bench_lbl_b="fEM",
-        process_name="Fractional CIR",
-        save_path=dst / "qq_cir_alpha085_alpha10_t1_combined.png"
-    )
-
-
-# ---------------------------------------------------------------------------
 # Experiment 5: Nonlinear Trigonometric SDE
 # Both the QQ plot and the sample-path homotopy plot now have real raw-data
 # caches (qq_raw_cache.npz and sample_path_alpha_convergence_cache.npz),
@@ -382,6 +360,5 @@ if __name__ == "__main__":
     regen_exp1()
     regen_exp2()
     regen_exp3()
-    regen_exp4()
     regen_exp5()
     print("\nAll figures regenerated into:", OUT)

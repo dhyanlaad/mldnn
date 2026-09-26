@@ -7,7 +7,7 @@ Parameters: theta = 0.3, mu = 0.0, sigma = 0.15, y0 = 1.0, alpha = 1.0
 Sweeps: mhat in {2, 4, 8, 16, 24, 32, 40}
 Paths: 500 paths, fine mesh = 65,536 steps
 
-Benchmark: Exact analytic Ito integral solution
+Benchmark: High-resolution left-kernel approximation to the analytic Ito solution
 y_exact(t) = y0 * exp(-theta * t) + sigma * exp(-theta * t) * int_0^t exp(theta * s) dW_s
 """
 
@@ -25,7 +25,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import config
-from solver.parallel import solve_affine_fubini_batch
+from solver.fcmp import solve_affine_batch
 from solver.core_mldnn import brownian_paths, ml_vec
 from experiments.common import save_experiment_cache
 
@@ -54,7 +54,6 @@ def run_experiment():
     mu = 0.0
     sigma = 0.15
     y0 = 1.0
-    Nq = 64
     n_paths = 500
     n_steps = 65536
     mhat_values = [1, 2, 4, 8, 16, 24, 32, 40]
@@ -65,8 +64,8 @@ def run_experiment():
     rng = np.random.default_rng(config.SEED)
     dB = brownian_paths(n_steps, n_paths, rng=rng, seed=config.SEED)
     
-    # 2. Compute Exact Analytic Ito Benchmark
-    print("Evaluating exact analytic Ito benchmark on continuous Brownian paths...")
+    # 2. Compute the analytic resolvent with left-point stochastic-integral weights.
+    print("Evaluating high-resolution Ito-resolvent benchmark...")
     t0 = time.time()
     t_mesh = np.linspace(0.0, 1.0, n_steps + 1)
     # y(t) = y0 * exp(-theta * t) + sigma * exp(-theta * t) * sum_{s <= t} exp(theta * s) * dB_s
@@ -91,7 +90,7 @@ def run_experiment():
     
     for mhat in mhat_values:
         t0 = time.time()
-        y_mldnn = solve_affine_fubini_batch(
+        y_mldnn = solve_affine_batch(
             alpha=alpha,
             mhat=mhat,
             dB=dB,
@@ -100,9 +99,7 @@ def run_experiment():
             b1=-theta,
             s0=sigma,
             s1=0.0,
-            Nq=Nq,
-            t_eval=t_eval,
-            trace_order=1
+            t_eval=t_eval
         )
         t_el = time.time() - t0
         mldnn_dict[alpha][mhat] = y_mldnn
@@ -136,7 +133,7 @@ def run_experiment():
         "# Stochastic Ornstein-Uhlenbeck Process Error Table (alpha = 1.0)",
         "",
         f"Equation: dy(t) = -{theta} y(t) dt + {sigma} dW_t, y(0) = {y0}, mu = {mu}",
-        f"Paths: {n_paths:,}, Fine Mesh Steps: {n_steps:,}, Collocation Points: Nq = {Nq}",
+        f"Paths: {n_paths:,}, Fine Mesh Steps: {n_steps:,}, Solver: FCMP (unfiltered, pinned)",
         "",
         "| $\\hat{m}$ | $\\text{Sup}_t \\text{ MSE}$ | $L_2 \\text{ MSE}$ | $\\text{Sup}_t \\text{ RMSE}$ | $L_2 \\text{ RMSE}$ | Solve Time (s) |",
         "| :---: | :---: | :---: | :---: | :---: | :---: |"
@@ -164,7 +161,7 @@ def run_experiment():
         print(f"Evaluating mean error for alpha = {a:.2f}...")
         # Exact Mittag-Leffler mean: E[y(t)] = y0 * E_alpha(-theta * t^alpha)
         exact_mean = y0 * ml_vec(a, 1.0, -theta * (t_eval ** a))
-        y_num = solve_affine_fubini_batch(
+        y_num = solve_affine_batch(
             alpha=a,
             mhat=32,
             dB=dB,
@@ -173,12 +170,10 @@ def run_experiment():
             b1=-theta,
             s0=sigma,
             s1=0.0,
-            Nq=Nq,
-            t_eval=t_eval,
-            trace_order=1
+            t_eval=t_eval
         )
         num_mean = np.mean(y_num, axis=0)
-        disc_l2 = float((1.0 / len(t_eval)) * np.sqrt(np.sum((num_mean - exact_mean) ** 2)))
+        disc_l2 = float(np.sqrt(np.mean((num_mean - exact_mean) ** 2)))
         disc_linf = float(np.max(np.abs(num_mean - exact_mean)))
         mean_records.append({
             "alpha": a,
@@ -195,13 +190,13 @@ def run_experiment():
     from experiments.common import run_fast_fem, MODEL_OU
     
     exact_t1_a10 = exact_eval[:, -1]
-    exact_t1_a085 = run_fast_fem(MODEL_OU, 0.85, 0.0, -theta, sigma, y0, dB, np.array([1.0])).squeeze(-1)
+    exact_t1_a085 = run_fast_fem(MODEL_OU, 0.85, theta, 0.0, sigma, y0, dB, np.array([1.0])).squeeze(-1)
     
-    sol_t1_a10 = solve_affine_fubini_batch(
-        alpha=1.0, mhat=32, dB=dB, y0=y0, b0=0.0, b1=-theta, s0=sigma, s1=0.0, Nq=Nq, t_eval=np.array([1.0]), trace_order=1
+    sol_t1_a10 = solve_affine_batch(
+        alpha=1.0, mhat=32, dB=dB, y0=y0, b0=0.0, b1=-theta, s0=sigma, s1=0.0, t_eval=np.array([1.0])
     ).squeeze(-1)
-    sol_t1_a085 = solve_affine_fubini_batch(
-        alpha=0.85, mhat=32, dB=dB, y0=y0, b0=0.0, b1=-theta, s0=sigma, s1=0.0, Nq=Nq, t_eval=np.array([1.0]), trace_order=1
+    sol_t1_a085 = solve_affine_batch(
+        alpha=0.85, mhat=32, dB=dB, y0=y0, b0=0.0, b1=-theta, s0=sigma, s1=0.0, t_eval=np.array([1.0])
     ).squeeze(-1)
     
     qq_cache_file = out_dir / "qq_raw_cache.npz"

@@ -22,7 +22,6 @@ experiments=(
     experiments.exp1_deterministic
     experiments.exp2_stochastic_ou
     experiments.exp3_gbm
-    experiments.exp4_cir
     experiments.exp5_trig
 )
 

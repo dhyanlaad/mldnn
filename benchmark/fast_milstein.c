@@ -31,7 +31,9 @@
 #include <string.h>
 #include <pthread.h>
 #include <stdio.h>
+#if defined(__aarch64__)
 #include <arm_neon.h>
+#endif
 
 #define MAX_PCORES 20
 
@@ -212,6 +214,7 @@ static inline double fused_dot6_neon(
     const double* __restrict__ e, const double* __restrict__ f,
     int len)
 {
+#if defined(__aarch64__)
     float64x2_t acc0 = vdupq_n_f64(0.0);
     float64x2_t acc1 = vdupq_n_f64(0.0);
     float64x2_t acc2 = vdupq_n_f64(0.0);
@@ -275,6 +278,13 @@ static inline double fused_dot6_neon(
         sum += a[i] * b[i] + c[i] * d[i] + e[i] * f[i];
     }
     return sum;
+#else
+    double sum = 0.0;
+    for (int i = 0; i < len; i++) {
+        sum += a[i] * b[i] + c[i] * d[i] + e[i] * f[i];
+    }
+    return sum;
+#endif
 }
 
 typedef struct {

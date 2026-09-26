@@ -14,6 +14,7 @@ import time
 import json
 from pathlib import Path
 import numpy as np
+import torch
 import pandas as pd
 import matplotlib.pyplot as plt
 
@@ -23,7 +24,7 @@ if str(ROOT) not in sys.path:
 
 import config
 from solver.core_mldnn import brownian_paths
-from solver.parallel import solve_nonlinear_fubini_batch
+from solver.fcmp import solve_nonlinear_batch
 from experiments.common import run_fast_fem, MODEL_TRIGONOMETRIC
 
 plt.rcParams.update({
@@ -42,22 +43,13 @@ def solve_trig_batched_torch(
     y0: float,
     mu: float,
     sigma: float,
-    Nq: int,
     t_eval: np.ndarray,
-    max_iter: int = 20,
-    tol: float = 1e-8
 ) -> np.ndarray:
-    bfun = lambda t, y: mu * np.cos(y)
-    bprime = lambda t, y: -mu * np.sin(y)
-    bprime2 = lambda t, y: -mu * np.cos(y)
-    sfun = lambda t, y: sigma * np.sin(y)
-    sprime = lambda t, y: sigma * np.cos(y)
-    sprime2 = lambda t, y: -sigma * np.sin(y)
-    return solve_nonlinear_fubini_batch(
+    # two unfiltered FCMP passes: the pass count Theorem 1 covers without the filter
+    return solve_nonlinear_batch(
         alpha, mhat, dB, y0,
-        bfun, bprime, bprime2, sfun, sprime, sprime2,
-        Nq=Nq, t_eval=t_eval, max_iter=max_iter, tol=tol,
-        correction="operator_trace",
+        lambda t, y: mu * torch.cos(y), lambda t, y: sigma * torch.sin(y),
+        bprime=lambda t, y: -mu * torch.sin(y), t_eval=t_eval, n_passes=2,
     )
 
 def run_milstein_batch(y0: float, mu: float, sigma: float, dB: np.ndarray, t_eval: np.ndarray) -> np.ndarray:
@@ -90,7 +82,6 @@ def main():
     n_paths = 500
     n_steps = 65536
     t_eval = np.linspace(0.0, 1.0, 101)
-    Nq = 64
     mhat_values = [2, 4, 8, 16, 24, 32]
     alphas_mean = [0.55, 0.65, 0.75, 0.85, 0.95, 1.00]
     
@@ -120,7 +111,7 @@ def main():
     
     for m in mhat_values:
         t0 = time.time()
-        sol_m = solve_trig_batched_torch(1.0, m, dB, y0, mu, sigma, max(Nq, m + 1), t_eval)
+        sol_m = solve_trig_batched_torch(1.0, m, dB, y0, mu, sigma, t_eval)
         elapsed = time.time() - t0
         
         diff = exact_eval_a10 - sol_m
@@ -153,10 +144,10 @@ def main():
             bench_sol = run_fast_fem(MODEL_TRIGONOMETRIC, a, mu, 0.0, sigma, y0, dB, t_eval)
             
         bench_mean = np.mean(bench_sol, axis=0)
-        mldnn_sol = solve_trig_batched_torch(a, 32, dB, y0, mu, sigma, Nq, t_eval)
+        mldnn_sol = solve_trig_batched_torch(a, 32, dB, y0, mu, sigma, t_eval)
         mldnn_mean = np.mean(mldnn_sol, axis=0)
         
-        disc_l2 = float((1.0 / len(t_eval)) * np.sqrt(np.sum((mldnn_mean - bench_mean) ** 2)))
+        disc_l2 = float(np.sqrt(np.mean((mldnn_mean - bench_mean) ** 2)))
         disc_linf = float(np.max(np.abs(mldnn_mean - bench_mean)))
         mean_records.append({
             "alpha": a,
@@ -173,8 +164,8 @@ def main():
     exact_t1_a10 = exact_eval_a10[:, -1]
     exact_t1_a085 = run_fast_fem(MODEL_TRIGONOMETRIC, 0.85, mu, 0.0, sigma, y0, dB, np.array([1.0])).squeeze(-1)
     
-    sol_t1_a10 = solve_trig_batched_torch(1.0, 32, dB, y0, mu, sigma, Nq, np.array([1.0])).squeeze(-1)
-    sol_t1_a085 = solve_trig_batched_torch(0.85, 32, dB, y0, mu, sigma, Nq, np.array([1.0])).squeeze(-1)
+    sol_t1_a10 = solve_trig_batched_torch(1.0, 32, dB, y0, mu, sigma, np.array([1.0])).squeeze(-1)
+    sol_t1_a085 = solve_trig_batched_torch(0.85, 32, dB, y0, mu, sigma, np.array([1.0])).squeeze(-1)
     
     probs = np.linspace(0.005, 0.995, 200)
     fig_qq, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5.2))
@@ -239,7 +230,7 @@ def main():
             bench_paths[a] = run_milstein_batch(y0, mu, sigma, dB_single, t_eval_fine)[0]
         else:
             bench_paths[a] = run_fast_fem(MODEL_TRIGONOMETRIC, a, mu, 0.0, sigma, y0, dB_single, t_eval_fine)[0]
-        mldnn_paths[a] = solve_trig_batched_torch(a, 32, dB_single, y0, mu, sigma, Nq, t_eval_fine)[0]
+        mldnn_paths[a] = solve_trig_batched_torch(a, 32, dB_single, y0, mu, sigma, t_eval_fine)[0]
         
     colors = {0.60: '#8c564b', 0.70: '#9467bd', 0.80: '#1f77b4', 0.90: '#ff7f0e', 0.95: '#2ca02c', 1.00: '#d62728'}
     fig_sp, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 5.2), sharey=True)

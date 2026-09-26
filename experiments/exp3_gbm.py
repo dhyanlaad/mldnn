@@ -4,7 +4,7 @@ exp3_gbm.py
 Fractional Geometric Brownian Motion (GBM) Experiment Suite:
 Equation: D_t^alpha y(t) = mu * y(t) + sigma * y(t) * dW_t/dt, y(0) = 1.0
 Parameters: mu = 0.3, sigma = 0.15, y0 = 1.0, R = 500 paths, N = 65,536 steps
-- alpha = 1.0: Exact geometric Ito benchmark
+- alpha = 1.0: Exact geometric Ito values on the Brownian mesh, interpolated at output times
 - alpha < 1.0: Fractional Euler-Maruyama (C fEM) benchmark
 """
 
@@ -22,7 +22,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import config
-from solver.parallel import solve_affine_fubini_batch
+from solver.fcmp import solve_affine_batch
 from solver.core_mldnn import brownian_paths, ml_vec
 from experiments.common import run_fast_fem, MODEL_GBM
 
@@ -42,7 +42,6 @@ def main():
     n_paths = 500
     n_steps = 65536
     t_eval = np.linspace(0.0, 1.0, 101)
-    Nq = 64
     mhat_values = [2, 4, 8, 16, 24, 32]
     alphas_mean = [0.55, 0.65, 0.75, 0.85, 0.95, 1.00]
     
@@ -56,12 +55,12 @@ def main():
     print(f"Parameters: mu={mu}, sigma={sigma}, y0={y0}, R={n_paths:,} paths, N={n_steps:,} steps")
     print("=" * 85)
     
-    # 1. Brownian Increments & Exact Ito Benchmark
+    # 1. Brownian increments and exact on-mesh Ito values (interpolated below)
     print(f"Generating Brownian increments ({n_paths:,} paths, {n_steps:,} steps)...")
     rng = np.random.default_rng(config.SEED)
     dB = brownian_paths(n_steps, n_paths, rng=rng, seed=config.SEED)
     
-    print("Evaluating exact geometric Ito benchmark on continuous Brownian paths (alpha = 1.0)...")
+    print("Evaluating geometric Ito benchmark on the Brownian mesh (alpha = 1.0)...")
     t_mesh = np.linspace(0.0, 1.0, n_steps + 1)
     W = np.zeros((n_paths, n_steps + 1), dtype=np.float64)
     W[:, 1:] = np.cumsum(dB, axis=1)
@@ -75,8 +74,8 @@ def main():
     
     for m in mhat_values:
         t0 = time.time()
-        sol_m = solve_affine_fubini_batch(
-            alpha=1.0, mhat=m, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, Nq=max(Nq, m + 1), t_eval=t_eval, trace_order=1
+        sol_m = solve_affine_batch(
+            alpha=1.0, mhat=m, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, t_eval=t_eval
         )
         elapsed = time.time() - t0
         
@@ -105,11 +104,11 @@ def main():
     for a in alphas_mean:
         print(f"Evaluating mean error for alpha = {a:.2f}...")
         exact_mean = y0 * ml_vec(a, 1.0, mu * (t_eval ** a))
-        y_num = solve_affine_fubini_batch(
-            alpha=a, mhat=32, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, Nq=Nq, t_eval=t_eval, trace_order=1
+        y_num = solve_affine_batch(
+            alpha=a, mhat=32, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, t_eval=t_eval
         )
         num_mean = np.mean(y_num, axis=0)
-        disc_l2 = float((1.0 / len(t_eval)) * np.sqrt(np.sum((num_mean - exact_mean) ** 2)))
+        disc_l2 = float(np.sqrt(np.mean((num_mean - exact_mean) ** 2)))
         disc_linf = float(np.max(np.abs(num_mean - exact_mean)))
         mean_records.append({
             "alpha": a,
@@ -124,13 +123,13 @@ def main():
     # 4. Terminal QQ Plots (alpha = 0.85 & alpha = 1.0, mhat = 32)
     print("\n--- Generating Terminal QQ Plots at t = 1.0 (mhat = 32) ---")
     exact_t1_a10 = exact_eval_a10[:, -1]
-    exact_t1_a085 = run_fast_fem(MODEL_GBM, 0.85, 0.0, mu, sigma, y0, dB, np.array([1.0])).squeeze(-1)
+    exact_t1_a085 = run_fast_fem(MODEL_GBM, 0.85, mu, 0.0, sigma, y0, dB, np.array([1.0])).squeeze(-1)
     
-    sol_t1_a10 = solve_affine_fubini_batch(
-        alpha=1.0, mhat=32, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, Nq=Nq, t_eval=np.array([1.0]), trace_order=1
+    sol_t1_a10 = solve_affine_batch(
+        alpha=1.0, mhat=32, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, t_eval=np.array([1.0])
     ).squeeze(-1)
-    sol_t1_a085 = solve_affine_fubini_batch(
-        alpha=0.85, mhat=32, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, Nq=Nq, t_eval=np.array([1.0]), trace_order=1
+    sol_t1_a085 = solve_affine_batch(
+        alpha=0.85, mhat=32, dB=dB, y0=y0, b0=0.0, b1=mu, s0=0.0, s1=sigma, t_eval=np.array([1.0])
     ).squeeze(-1)
     
     probs = np.linspace(0.005, 0.995, 200)

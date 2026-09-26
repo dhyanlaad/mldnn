@@ -21,7 +21,8 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import config
-from solver.core_mldnn import ml_vec, solve_affine, evaluate_solution
+from solver.core_mldnn import ml_vec
+from solver.fcmp import solve_affine_batch
 from experiments.common import save_experiment_cache
 
 def run_experiment_1():
@@ -35,7 +36,6 @@ def run_experiment_1():
     
     alphas = [0.55, 0.60, 0.70, 0.80, 0.90, 1.00]
     mhat_values = [2, 4, 8, 16, 24, 32, 40]
-    Nq = 64
     theta = 1.0
     x0 = 1.0
     
@@ -56,19 +56,16 @@ def run_experiment_1():
         exact_dict[alpha] = exact[None, :]
         
         for mhat in mhat_values:
-            Nq_eff = max(Nq, mhat + 1)
-            c, tb, ts, _ = solve_affine(
+            # sigma = 0: the stochastic block vanishes, so a zero path on a short mesh suffices
+            y_pred = solve_affine_batch(
                 alpha=alpha,
                 mhat=mhat,
-                S=None,
+                dB=np.zeros((1, 16)),
                 y0=x0,
                 b0=0.0,
                 b1=-theta,
-                s0=0.0,
-                s1=0.0,
-                Nq=Nq_eff
-            )
-            y_pred = evaluate_solution(alpha, mhat, c, t_eval)
+                t_eval=t_eval,
+            )[0]
             mldnn_dict[alpha][mhat] = y_pred[None, :]
             
             diff = exact - y_pred
@@ -123,7 +120,7 @@ def run_experiment_1():
         exact_dict=exact_dict,
         mldnn_dict=mldnn_dict,
         metrics_dict=metrics_dict,
-        params={"theta": theta, "x0": x0, "Nq": Nq, "model": "OU zero diffusion"}
+        params={"theta": theta, "x0": x0, "solver": "FCMP", "model": "OU zero diffusion"}
     )
     
     # Markdown tables

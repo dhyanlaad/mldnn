@@ -31,7 +31,6 @@ MODEL_OU = 1
 MODEL_GBM = 2
 MODEL_LOGISTIC = 3
 MODEL_NONLINEAR = 4
-MODEL_CIR = 5
 MODEL_TRIGONOMETRIC = 6
 
 # Load C library
@@ -44,6 +43,7 @@ if _lib_path.exists():
         ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double), ctypes.POINTER(ctypes.c_double),
         ctypes.POINTER(ctypes.c_double), ctypes.c_int, ctypes.POINTER(ctypes.c_double), ctypes.c_int
     ]
+    _c_lib.solve_fem_generic_c.restype = None
 else:
     _c_lib = None
 
